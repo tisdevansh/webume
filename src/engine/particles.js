@@ -37,6 +37,67 @@ const fragmentShader = /* glsl */ `
   }
 `;
 
+// Full-screen backdrop drawn in the same WebGL pass: accent glows, animated film grain.
+// Doing this here instead of as stacked page layers keeps scrolling smooth.
+const quadVertex = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = vec4(position.xy, 0.0, 1.0);
+  }
+`;
+
+const backdropFragment = /* glsl */ `
+  uniform vec3 uAccent;
+  uniform float uTime;
+  uniform vec2 uRes;
+  uniform vec2 uShift;
+  varying vec2 vUv;
+
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+
+  void main() {
+    float aspect = uRes.x / uRes.y;
+    vec2 p = (vUv - 0.5) * vec2(aspect, 1.0);
+    vec2 a = vec2(-0.42 * aspect, 0.46) + uShift * 0.04;
+    vec2 b = vec2(0.44 * aspect, -0.5) - uShift * 0.03;
+    float glow = 0.16 * smoothstep(1.0, 0.0, length(p - a)) + 0.11 * smoothstep(0.95, 0.0, length(p - b));
+    vec3 col = vec3(0.0235, 0.0235, 0.031) + uAccent * glow * 0.5;
+    col += (hash(floor(vUv * uRes) + floor(uTime * 24.0)) - 0.5) * 0.03;
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+const vignetteFragment = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    float v = smoothstep(0.42, 0.95, length((vUv - 0.5) * vec2(1.1, 1.0)) * 1.25);
+    gl_FragColor = vec4(0.0, 0.0, 0.0, v * 0.7);
+  }
+`;
+
+// A few large, soft out-of-focus lights close to the camera: they drift with the scroll
+const bokehFragment = /* glsl */ `
+  uniform vec3 uColor;
+  varying float vAlpha;
+  void main() {
+    float d = length(gl_PointCoord - 0.5);
+    gl_FragColor = vec4(uColor, smoothstep(0.5, 0.15, d) * vAlpha);
+  }
+`;
+
+const bokehVertex = /* glsl */ `
+  attribute float aSize;
+  uniform float uPixelRatio;
+  varying float vAlpha;
+  void main() {
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = aSize * uPixelRatio * (10.0 / -mv.z);
+    vAlpha = 0.16;
+  }
+`;
+
 const rand = (a, b) => a + Math.random() * (b - a);
 
 // Scale and centre raw points so their x/y extent fits inside w × h
@@ -246,7 +307,10 @@ export class ParticleStage {
   constructor(canvas, { colors, reducedMotion }) {
     this.reduced = reducedMotion;
     this.colors = colors.map((c) => new THREE.Color(c));
-    this.count = window.innerWidth < 760 ? 7000 : 16000;
+    this.count = window.innerWidth < 760 ? 4000 : 9000;
+    this.drawCount = this.count;
+    this.frameAvg = 16;
+    this.frames = 0;
     this.active = GATE_SHAPE;
     this.shapes = [];
     this.rects = null;
@@ -257,7 +321,7 @@ export class ParticleStage {
 
     // Throws when WebGL is unavailable; the caller falls back to plain DOM
     this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
     this.camera.position.z = 10;
@@ -279,7 +343,7 @@ export class ParticleStage {
 
     this.uniforms = {
       uTime: { value: 0 },
-      uSize: { value: 2.6 },
+      uSize: { value: 3 },
       uScatter: { value: 0 },
       uPixelRatio: { value: this.renderer.getPixelRatio() },
       uColor: { value: this.colors[GATE_SHAPE].clone() },
@@ -296,6 +360,50 @@ export class ParticleStage {
     const points = new THREE.Points(this.geometry, this.material);
     points.frustumCulled = false;
     this.scene.add(points);
+
+    // Backdrop (drawn first), bokeh and vignette (drawn last), all in the same render
+    const quad = new THREE.PlaneGeometry(2, 2);
+    const overlay = (fragmentShader, order, uniforms = {}, transparent = false) => {
+      const mesh = new THREE.Mesh(
+        quad,
+        new THREE.ShaderMaterial({ vertexShader: quadVertex, fragmentShader, uniforms, transparent, depthTest: false, depthWrite: false })
+      );
+      mesh.frustumCulled = false;
+      mesh.renderOrder = order;
+      this.scene.add(mesh);
+      return mesh;
+    };
+    this.backdropUniforms = { uAccent: { value: this.colors[GATE_SHAPE].clone() }, uTime: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) }, uShift: { value: new THREE.Vector2() } };
+    this.backdrop = overlay(backdropFragment, -1, this.backdropUniforms);
+    this.vignette = overlay(vignetteFragment, 3, {}, true);
+    this.quad = quad;
+
+    const bokehCount = 24;
+    const bokehPos = new Float32Array(bokehCount * 3);
+    const bokehSize = new Float32Array(bokehCount);
+    for (let i = 0; i < bokehCount; i++) {
+      bokehPos[i * 3] = rand(-3.6, 3.6);
+      bokehPos[i * 3 + 1] = rand(-15, 3);
+      bokehPos[i * 3 + 2] = rand(2, 6);
+      bokehSize[i] = rand(30, 110);
+    }
+    this.bokehGeometry = new THREE.BufferGeometry();
+    this.bokehGeometry.setAttribute('position', new THREE.BufferAttribute(bokehPos, 3));
+    this.bokehGeometry.setAttribute('aSize', new THREE.BufferAttribute(bokehSize, 1));
+    this.bokehMaterial = new THREE.ShaderMaterial({
+      vertexShader: bokehVertex,
+      fragmentShader: bokehFragment,
+      uniforms: { uColor: this.uniforms.uColor, uPixelRatio: this.uniforms.uPixelRatio },
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    this.bokeh = new THREE.Points(this.bokehGeometry, this.bokehMaterial);
+    this.bokeh.frustumCulled = false;
+    this.bokeh.renderOrder = 2;
+    this.scene.add(this.bokeh);
+    this.progress = 0;
 
     this.fontsReady = document.fonts ? document.fonts.load('700 160px Geist').catch(() => {}) : Promise.resolve();
 
@@ -325,6 +433,11 @@ export class ParticleStage {
     this.velocity = v;
   }
 
+  // 0..1 through the whole page; the bokeh lights rise as the film plays
+  setProgress(p) {
+    this.progress = p;
+  }
+
   // Fade the swarm back while dense content (cards, grids) is on screen
   setDim(dim) {
     this.dim = dim;
@@ -347,6 +460,7 @@ export class ParticleStage {
 
   onResize() {
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    if (this.backdropUniforms) this.backdropUniforms.uRes.value.set(window.innerWidth, window.innerHeight);
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
   }
@@ -358,8 +472,10 @@ export class ParticleStage {
 
   tick() {
     this.raf = requestAnimationFrame(this.tick);
-    const dt = Math.min(this.clock.getDelta(), 0.05);
+    const rawDt = this.clock.getDelta();
+    const dt = Math.min(rawDt, 0.05);
     const t = this.clock.elapsedTime;
+    this.adapt(rawDt);
     this.uniforms.uTime.value = this.reduced ? 0 : t;
 
     const shape = this.shapes[this.active];
@@ -376,7 +492,7 @@ export class ParticleStage {
       const { base, cx, cy } = shape;
       const pos = this.positions;
       const frames = dt * 60;
-      for (let i = 0, j = 0; i < this.count; i++, j += 3) {
+      for (let i = 0, j = 0; i < this.drawCount; i++, j += 3) {
         const bx = base[j];
         const by = base[j + 1];
         const bz = base[j + 2];
@@ -399,6 +515,7 @@ export class ParticleStage {
       }
       this.geometry.attributes.position.needsUpdate = true;
       this.uniforms.uColor.value.lerp(shape.color, 0.04);
+      this.backdropUniforms.uAccent.value.lerp(shape.color, 0.04);
       this.uniforms.uOpacity.value += (shape.opacity * this.dim - this.uniforms.uOpacity.value) * 0.05;
     }
 
@@ -407,10 +524,30 @@ export class ParticleStage {
     const scatter = this.reduced ? 0 : Math.min(Math.abs(this.velocity) * 0.012, 0.9);
     this.uniforms.uScatter.value += (scatter - this.uniforms.uScatter.value) * 0.1;
 
+    this.backdropUniforms.uTime.value = this.reduced ? 0 : t;
+    this.backdropUniforms.uShift.value.set(this.mouse.x, this.mouse.y);
+    this.bokeh.position.y += (this.progress * 14 - this.bokeh.position.y) * 0.08;
+
     this.camera.position.x += (this.mouse.x * 0.35 - this.camera.position.x) * 0.04;
     this.camera.position.y += (this.mouse.y * 0.2 - this.camera.position.y) * 0.04;
     this.camera.lookAt(0, 0, 0);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  // Slow machine? Draw fewer particles at a lower resolution until frames come back under ~22ms
+  adapt(dt) {
+    if (dt > 0.2) return; // tab switch or breakpoint pause, not a real frame
+    this.frameAvg += (dt * 1000 - this.frameAvg) * 0.05;
+    this.frames += 1;
+    if (this.frames < 90 || this.frameAvg < 22 || this.drawCount <= this.count * 0.3) return;
+    this.frames = 0;
+    this.drawCount = Math.floor(this.drawCount * 0.7);
+    this.geometry.setDrawRange(0, this.drawCount);
+    if (this.renderer.getPixelRatio() > 1) {
+      this.renderer.setPixelRatio(1);
+      this.uniforms.uPixelRatio.value = 1;
+      this.onResize();
+    }
   }
 
   dispose() {
@@ -420,6 +557,11 @@ export class ParticleStage {
     window.removeEventListener('pointermove', this.onPointer);
     this.geometry.dispose();
     this.material.dispose();
+    this.bokehGeometry.dispose();
+    this.bokehMaterial.dispose();
+    this.quad.dispose();
+    this.backdrop.material.dispose();
+    this.vignette.material.dispose();
     this.renderer.dispose();
   }
 }

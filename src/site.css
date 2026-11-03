@@ -22,7 +22,6 @@
   --hud: 76px;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   color-scheme: dark;
-  transition: --accent 1.4s ease;
 }
 
 html {
@@ -105,32 +104,6 @@ a {
   pointer-events: none;
 }
 
-.vignette {
-  position: fixed;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  background: radial-gradient(ellipse at 50% 45%, transparent 50%, rgba(0, 0, 0, 0.72) 100%);
-}
-
-.grain {
-  position: fixed;
-  inset: -50%;
-  z-index: 80;
-  pointer-events: none;
-  opacity: 0.06;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  animation: grain 0.9s steps(5) infinite;
-}
-
-@keyframes grain {
-  0% { transform: translate(0, 0); }
-  20% { transform: translate(-3%, 2%); }
-  40% { transform: translate(2%, -3%); }
-  60% { transform: translate(-2%, -1%); }
-  80% { transform: translate(3%, 3%); }
-  100% { transform: translate(0, 0); }
-}
 
 .letterbox {
   position: fixed;
@@ -234,8 +207,6 @@ main {
   font: 500 15px/1 var(--sans);
   text-decoration: none;
   cursor: pointer;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   transition: background 0.3s, border-color 0.3s, color 0.3s, transform 0.4s var(--ease-out);
 }
 .btn:hover {
@@ -394,9 +365,7 @@ html.is-locked .hud {
   padding: 0 16px;
   border-radius: 999px;
   border: 1px solid var(--line);
-  background: rgba(6, 6, 8, 0.4);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: rgba(6, 6, 8, 0.72);
   color: var(--ink);
   font-family: var(--mono);
   font-size: 11px;
@@ -551,55 +520,7 @@ html.is-locked .hud {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  translate: calc(var(--px, 0) * var(--depth, 0) * 1px) calc(var(--py, 0) * var(--depth, 0) * 1px);
-}
-
-.aura {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-.aura i {
-  position: absolute;
-  width: 70vmax;
-  height: 70vmax;
-  border-radius: 50%;
-  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 22%, transparent), transparent 62%);
-}
-.aura-a {
-  left: -25vmax;
-  top: -32vmax;
-  opacity: 0.55;
-  animation: drift-a 26s ease-in-out infinite alternate;
-}
-.aura-b {
-  right: -30vmax;
-  bottom: -36vmax;
-  opacity: 0.4;
-  animation: drift-b 32s ease-in-out infinite alternate;
-}
-@keyframes drift-a {
-  to { transform: translate(18vw, 22vh) scale(1.15); }
-}
-@keyframes drift-b {
-  to { transform: translate(-20vw, -18vh) scale(0.9); }
-}
-
-.bokeh {
-  position: fixed;
-  inset: 0;
-  z-index: 3;
-  overflow: hidden;
-  pointer-events: none;
-}
-.bokeh i {
-  position: absolute;
-  border-radius: 50%;
-  background: var(--accent);
-  opacity: 0.2;
-  transform: translateY(calc(var(--scroll, 0) * var(--speed) * -120vh));
+  will-change: translate;
 }
 
 .bg-layer {
@@ -1080,9 +1001,6 @@ html.is-locked .hero-cue > * {
   inset: 0;
   transform-style: preserve-3d;
 }
-.cine .bl-tilt {
-  transform: rotateX(calc(var(--py, 0) * -4deg)) rotateY(calc(var(--px, 0) * 6deg));
-}
 .cine .bl-stack {
   display: block;
 }
@@ -1099,8 +1017,7 @@ html.is-locked .hero-cue > * {
   inset: 0;
   border-radius: 14px;
   pointer-events: none;
-  background: radial-gradient(520px circle at var(--mx, 30%) var(--my, 20%), rgba(255, 255, 255, 0.16), transparent 60%);
-  mix-blend-mode: soft-light;
+  background: radial-gradient(520px circle at var(--mx, 30%) var(--my, 20%), rgba(255, 255, 255, 0.08), transparent 60%);
 }
 .cine .bl-shot figcaption {
   position: absolute;
@@ -1122,9 +1039,7 @@ html.is-locked .hero-cue > * {
   position: relative;
   overflow: hidden;
   border: 1px solid var(--line);
-  background: var(--surface);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: rgba(17, 17, 21, 0.86);
   transition: border-color 0.4s, transform 0.5s var(--ease-out);
 }
 .step::before,
@@ -1185,9 +1100,7 @@ html.is-locked .hero-cue > * {
   overflow: hidden;
   border-radius: 16px;
   border: 1px solid rgba(243, 238, 230, 0.14);
-  background: rgba(10, 10, 13, 0.55);
-  backdrop-filter: blur(18px) saturate(1.2);
-  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  background: rgba(12, 12, 16, 0.9);
   box-shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.9);
   font-family: var(--mono);
   font-size: clamp(12.5px, 1vw, 14.5px);
@@ -1290,8 +1203,7 @@ html.is-locked .hero-cue > * {
   stroke: var(--accent);
   stroke-width: 1.2;
   stroke-dasharray: 1;
-  opacity: 0.65;
-  filter: drop-shadow(0 0 6px var(--accent));
+  opacity: 0.75;
 }
 .tree-core {
   grid-area: core;
@@ -1850,7 +1762,6 @@ html.is-locked .hero-cue > * {
     grid-area: auto;
     font-size: clamp(16px, 1.8vw, 24px);
   }
-  .aura i,
   .tree-ring {
     animation: none;
   }

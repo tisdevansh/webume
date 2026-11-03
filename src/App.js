@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { SplitText } from 'gsap/SplitText';
@@ -47,7 +47,7 @@ function Eyebrow({ index, children }) {
 // A giant outlined word drifting behind a scene; the outer layer follows the pointer
 function BgWord({ children, depth = 24 }) {
   return (
-    <div className="bg-layer layer" style={{ '--depth': depth }} aria-hidden="true">
+    <div className="bg-layer layer" data-depth={depth} aria-hidden="true">
       <span className="bg-word">{children}</span>
     </div>
   );
@@ -104,7 +104,9 @@ function Gate({ progress, onEnter }) {
   );
 }
 
-// Custom cursor, magnetic buttons and the pointer position (--px / --py) that every depth layer reads
+// Custom cursor, magnetic buttons, and pointer parallax on the depth layers.
+// Transforms are written to those few elements directly: changing a variable on :root
+// would restyle the whole page on every mouse move.
 function PointerFX() {
   const ringRef = useRef(null);
   const dotRef = useRef(null);
@@ -112,9 +114,15 @@ function PointerFX() {
   useEffect(() => {
     const root = document.documentElement;
     const p = { x: 0, y: 0 };
+    const layers = [...document.querySelectorAll('.layer')].map((el) => [el, Number(el.dataset.depth) || 0]);
+    const tilt = document.querySelector('.bl-tilt');
+    const still = prefersReducedMotion();
     const write = () => {
-      root.style.setProperty('--px', p.x.toFixed(3));
-      root.style.setProperty('--py', p.y.toFixed(3));
+      if (still) return;
+      layers.forEach(([el, d]) => {
+        el.style.translate = `${(p.x * d).toFixed(1)}px ${(p.y * d).toFixed(1)}px`;
+      });
+      if (tilt) tilt.style.transform = root.classList.contains('cine') ? `rotateX(${(-p.y * 4).toFixed(2)}deg) rotateY(${(p.x * 6).toFixed(2)}deg)` : '';
     };
     const toPx = gsap.quickTo(p, 'x', { duration: 1.2, ease: 'power3', onUpdate: write });
     const toPy = gsap.quickTo(p, 'y', { duration: 1.2, ease: 'power3', onUpdate: write });
@@ -169,38 +177,6 @@ function PointerFX() {
     <>
       <div className="cursor-ring" ref={ringRef} aria-hidden="true" />
       <div className="cursor-dot" ref={dotRef} aria-hidden="true" />
-    </>
-  );
-}
-
-// Light behind everything and soft bokeh in front of it: the two outer depth planes
-function Atmosphere() {
-  const bokeh = [
-    [8, 22, 18, 0.9],
-    [86, 14, 34, 1.6],
-    [72, 68, 12, 0.7],
-    [18, 80, 46, 2.2],
-    [46, 40, 8, 0.5],
-    [92, 52, 22, 1.2],
-    [34, 8, 14, 1.0],
-  ];
-  return (
-    <>
-      <div className="aura" aria-hidden="true">
-        <span className="layer" style={{ '--depth': -40 }}>
-          <i className="aura-a" />
-        </span>
-        <span className="layer" style={{ '--depth': 30 }}>
-          <i className="aura-b" />
-        </span>
-      </div>
-      <div className="bokeh" aria-hidden="true">
-        {bokeh.map(([x, y, size, speed], i) => (
-          <span key={i} className="layer" style={{ '--depth': size * 1.5 }}>
-            <i style={{ left: `${x}%`, top: `${y}%`, width: size, height: size, '--speed': speed, filter: `blur(${size / 6}px)` }} />
-          </span>
-        ))}
-      </div>
     </>
   );
 }
@@ -666,6 +642,35 @@ function Credits({ onReplay }) {
   );
 }
 
+// All seven scenes. Memoised so scene changes (which update the HUD) never re-render the film.
+const Film = memo(function Film({ onReplay }) {
+  return (
+    <main>
+      <div className="scene-wrap">
+        <Hero />
+      </div>
+      <div className="scene-wrap">
+        <Record />
+      </div>
+      <div className="scene-wrap">
+        <Billlion />
+      </div>
+      <div className="scene-wrap">
+        <Craft />
+      </div>
+      <div className="scene-wrap">
+        <Stories />
+      </div>
+      <div className="scene-wrap">
+        <Next />
+      </div>
+      <div className="scene-wrap">
+        <Credits onReplay={onReplay} />
+      </div>
+    </main>
+  );
+});
+
 // --- Scroll choreography ---
 
 function buildTimelines(desktop) {
@@ -721,7 +726,6 @@ function buildTimelines(desktop) {
     scale: desktop ? 1.5 : 1.2,
     yPercent: -20,
     autoAlpha: 0,
-    filter: 'blur(10px)',
     ease: 'none',
     scrollTrigger: { trigger: '.s-hero', start: 'top top', end: 'bottom top', scrub: true },
   });
@@ -855,8 +859,8 @@ function buildTimelines(desktop) {
       .fromTo('.st-bars i', { scaleY: 0 }, { scaleY: 1, duration: 0.6 }, 1.4)
       .from('.st-tag', { autoAlpha: 0, y: 20, duration: 0.4 }, 1.8);
     gsap.utils.toArray('.st-cap').forEach((cap, i, all) => {
-      tl.fromTo(cap, { autoAlpha: 0, y: 12, filter: 'blur(6px)' }, { autoAlpha: 1, y: 0, filter: 'blur(0px)', duration: 0.3 }, 1.9 + i * 0.7);
-      if (i < all.length - 1) tl.to(cap, { autoAlpha: 0, filter: 'blur(6px)', duration: 0.25 }, 2.4 + i * 0.7);
+      tl.fromTo(cap, { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, duration: 0.3 }, 1.9 + i * 0.7);
+      if (i < all.length - 1) tl.to(cap, { autoAlpha: 0, duration: 0.25 }, 2.4 + i * 0.7);
     });
     tl.to({}, { duration: 0.4 });
 
@@ -897,11 +901,10 @@ function buildTimelines(desktop) {
       if (section.matches('.s-record, .s-billlion, .s-next')) {
         gsap.fromTo(
           planes,
-          { scale: 1, autoAlpha: 1, filter: 'blur(0px)' },
+          { scale: 1, autoAlpha: 1 },
           {
             scale: 1.12,
             autoAlpha: 0,
-            filter: 'blur(10px)',
             ease: 'power1.in',
             immediateRender: false,
             scrollTrigger: { trigger: wrap, start: 'bottom bottom', end: 'bottom 15%', scrub: true },
@@ -1078,7 +1081,7 @@ export default function App() {
         end: 'max',
         refreshPriority: -2,
         onUpdate: (self) => {
-          document.documentElement.style.setProperty('--scroll', self.progress.toFixed(4));
+          stageRef.current?.setProgress(self.progress);
           if (fillRef.current) fillRef.current.style.transform = `scaleX(${self.progress})`;
           if (timeRef.current) timeRef.current.textContent = formatTime(self.progress * RUNTIME);
         },
@@ -1124,7 +1127,7 @@ export default function App() {
     const name = SplitText.create('.hero-title .serif', { type: 'chars' });
     gsap
       .timeline()
-      .to('.gate', { autoAlpha: 0, scale: reduced ? 1 : 1.08, filter: reduced ? 'none' : 'blur(12px)', duration: 1.1, ease: 'power2.inOut', onComplete: () => setGateGone(true) })
+      .to('.gate', { autoAlpha: 0, scale: reduced ? 1 : 1.08, duration: 1.1, ease: 'power2.inOut', onComplete: () => setGateGone(true) })
       .to('.letterbox', { scaleY: 0, duration: 1.6, ease: 'expo.inOut' }, 0.1)
       .fromTo('.hero-copy > *, .hero-cue > *', { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 1.4, stagger: 0.12, ease: 'expo.out' }, 0.7)
       .from(name.chars, { yPercent: 80, rotateX: -90, autoAlpha: 0, stagger: 0.05, duration: 1.4, ease: 'expo.out' }, 0.75)
@@ -1149,42 +1152,21 @@ export default function App() {
     if (lenisRef.current) lenisRef.current.scrollTo(i === 0 ? 0 : target.top, { duration: 1.8 });
     else window.scrollTo({ top: i === 0 ? 0 : target.top });
   };
+  const replay = useCallback(() => {
+    if (lenisRef.current) lenisRef.current.scrollTo(0, { duration: 1.8 });
+    else window.scrollTo({ top: 0 });
+  }, []);
 
   return (
     <div ref={rootRef} className="site">
-      <Atmosphere />
       <canvas ref={canvasRef} className="stage" aria-hidden="true" />
-      <div className="vignette" aria-hidden="true" />
-      <div className="grain" aria-hidden="true" />
       <div className="letterbox letterbox-top" aria-hidden="true" />
       <div className="letterbox letterbox-bottom" aria-hidden="true" />
 
       <Hud soundOn={soundOn} onToggleSound={toggleSound} scene={scene} ticks={ticks} onJump={jump} fillRef={fillRef} timeRef={timeRef} />
       <SceneToast scene={scene} live={gateGone} />
 
-      <main>
-        <div className="scene-wrap">
-          <Hero />
-        </div>
-        <div className="scene-wrap">
-          <Record />
-        </div>
-        <div className="scene-wrap">
-          <Billlion />
-        </div>
-        <div className="scene-wrap">
-          <Craft />
-        </div>
-        <div className="scene-wrap">
-          <Stories />
-        </div>
-        <div className="scene-wrap">
-          <Next />
-        </div>
-        <div className="scene-wrap">
-          <Credits onReplay={() => jump(0)} />
-        </div>
-      </main>
+      <Film onReplay={replay} />
 
       {!gateGone && <Gate progress={loaded} onEnter={enter} />}
       <PointerFX />

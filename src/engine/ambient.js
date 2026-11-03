@@ -1,9 +1,10 @@
-// A calm ambient score synthesised with the Web Audio API: warm pads that change
-// chord with each scene, a slow music-box melody drifting over them, and a low wash
-// of brown noise. Voiced in the mid range so laptop and phone speakers carry it.
+// A calm ambient score synthesised with the Web Audio API: a warm, slowly breathing
+// pad that changes chord with each scene, with an occasional soft, distant chime.
+// Voiced in the mid range so laptop and phone speakers carry it, pure sine tones only
+// (detuned layers "beat" against each other, which gets tiring fast).
 // No audio files, so nothing to license and nothing to download.
 
-const VOLUME = 0.85;
+const VOLUME = 0.6;
 
 const hz = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
 
@@ -18,9 +19,8 @@ const CHORDS = [
   { bass: 48, pad: [60, 64, 67, 71, 74] }, // Cmaj9
 ];
 
-// C major pentatonic sits consonantly over every chord above, so the melody can wander freely
-const MELODY = [69, 72, 74, 76, 79, 81, 84, 86];
-const STEP = 0.62; // seconds per melody step
+// C major pentatonic sits consonantly over every chord above
+const CHIMES = [67, 69, 72, 74, 76, 79];
 
 export class AmbientScore {
   constructor() {
@@ -29,7 +29,6 @@ export class AmbientScore {
     this.voices = [];
     this.muted = false;
     this.timer = null;
-    this.note = 3;
   }
 
   start() {
@@ -63,12 +62,12 @@ export class AmbientScore {
     // Pads pass through a slowly breathing low-pass before reaching the room
     this.padBus = ctx.createBiquadFilter();
     this.padBus.type = 'lowpass';
-    this.padBus.frequency.value = 1600;
-    this.padBus.Q.value = 0.3;
+    this.padBus.frequency.value = 1000;
+    this.padBus.Q.value = 0.2;
     const lfo = ctx.createOscillator();
     const lfoDepth = ctx.createGain();
-    lfo.frequency.value = 0.05;
-    lfoDepth.gain.value = 500;
+    lfo.frequency.value = 0.03;
+    lfoDepth.gain.value = 220;
     lfo.connect(lfoDepth).connect(this.padBus.frequency);
     lfo.start();
     const padDry = ctx.createGain();
@@ -76,14 +75,15 @@ export class AmbientScore {
     this.padBus.connect(padDry).connect(this.master);
     this.padBus.connect(this.reverb);
 
-    this.melodyBus = ctx.createGain();
-    this.melodyBus.gain.value = 0.6;
-    this.melodyBus.connect(this.master);
-    this.melodyBus.connect(this.reverb);
+    // Chimes sit mostly in the reverb, so they feel far away
+    this.chimeBus = ctx.createGain();
+    this.chimeBus.gain.value = 0.25;
+    this.chimeBus.connect(this.master);
+    this.chimeBus.connect(this.reverb);
 
     this.startAir();
     this.playChord(this.scene);
-    this.nextStep();
+    this.scheduleChime();
     this.fadeTo(this.muted ? 0 : VOLUME, 2.5);
   }
 
@@ -134,77 +134,45 @@ export class AmbientScore {
       setTimeout(() => gain.disconnect(), 7500);
     });
 
-    const notes = [{ midi: chord.bass, level: 0.09, types: [['sine', 0]] }].concat(
-      chord.pad.map((midi) => ({
-        midi,
-        level: 0.04,
-        types: [
-          ['sine', 0],
-          ['triangle', 6],
-          ['sine', -7],
-        ],
-      }))
-    );
-    this.voices = notes.map(({ midi, level, types }, n) => {
+    const notes = [{ midi: chord.bass, level: 0.1 }].concat(chord.pad.map((midi) => ({ midi, level: 0.05 })));
+    this.voices = notes.map(({ midi, level }, n) => {
       const gain = ctx.createGain();
       gain.gain.value = 0;
-      gain.gain.setTargetAtTime(level, now + n * 0.18, 1.4);
+      gain.gain.setTargetAtTime(level, now + n * 0.3, 2);
       gain.connect(this.padBus);
-      const oscs = types.map(([type, cents]) => {
-        const osc = ctx.createOscillator();
-        osc.type = type;
-        osc.frequency.value = hz(midi);
-        osc.detune.value = cents;
-        osc.connect(gain);
-        osc.start(now);
-        return osc;
-      });
-      return { gain, oscs };
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = hz(midi);
+      osc.connect(gain);
+      osc.start(now);
+      return { gain, oscs: [osc] };
     });
   }
 
-  // The melody: a slow random walk over the pentatonic scale, with breaths in between
-  nextStep() {
+  // Every few seconds, one soft chime: slow attack, long fade, never two close together
+  scheduleChime() {
     clearTimeout(this.timer);
-    let wait = STEP;
-    if (this.ctx && this.ctx.state === 'running' && !this.muted) {
-      const roll = Math.random();
-      if (roll < 0.58) {
-        const move = [-2, -1, -1, 1, 1, 2][Math.floor(Math.random() * 6)];
-        this.note = Math.min(MELODY.length - 1, Math.max(0, this.note + move));
-        this.pluck(MELODY[this.note], 0.75 + Math.random() * 0.25);
-        if (Math.random() < 0.18) this.pluck(MELODY[Math.max(0, this.note - 2)], 0.45, 0.02);
-      } else if (roll > 0.92) {
-        wait = STEP * 3; // a longer breath
-      }
-    }
-    this.timer = setTimeout(() => this.nextStep(), wait * 1000);
+    this.timer = setTimeout(() => {
+      if (this.ctx && this.ctx.state === 'running' && !this.muted) this.chime(CHIMES[Math.floor(Math.random() * CHIMES.length)]);
+      this.scheduleChime();
+    }, 4500 + Math.random() * 5000);
   }
 
-  // A soft music-box tone: a sine with two quiet overtones and a long, gentle decay
-  pluck(midi, velocity, delay = 0) {
+  chime(midi) {
     const ctx = this.ctx;
-    const at = ctx.currentTime + 0.03 + delay;
+    const at = ctx.currentTime + 0.05;
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0, at);
-    gain.gain.linearRampToValueAtTime(0.16 * velocity, at + 0.008);
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + 2.6);
-    gain.connect(this.melodyBus);
-    [
-      [1, 1],
-      [2, 0.22],
-      [3, 0.06],
-    ].forEach(([ratio, level]) => {
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = hz(midi) * ratio;
-      g.gain.value = level;
-      osc.connect(g).connect(gain);
-      osc.start(at);
-      osc.stop(at + 2.7);
-    });
-    setTimeout(() => gain.disconnect(), 3200 + delay * 1000);
+    gain.gain.linearRampToValueAtTime(0.12, at + 0.06);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + 4.5);
+    gain.connect(this.chimeBus);
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = hz(midi);
+    osc.connect(gain);
+    osc.start(at);
+    osc.stop(at + 4.6);
+    setTimeout(() => gain.disconnect(), 5000);
   }
 
   // Low brown noise, like distant wind, so the silence between notes feels warm
@@ -225,7 +193,7 @@ export class AmbientScore {
     filter.type = 'lowpass';
     filter.frequency.value = 600;
     const gain = ctx.createGain();
-    gain.gain.value = 0.035;
+    gain.gain.value = 0.025;
     source.connect(filter).connect(gain).connect(this.master);
     source.start();
   }
