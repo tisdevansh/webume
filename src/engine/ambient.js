@@ -1,10 +1,11 @@
 // A calm ambient score synthesised with the Web Audio API: a warm, slowly breathing
 // pad that changes chord with each scene, with an occasional soft, distant chime.
 // Voiced in the mid range so laptop and phone speakers carry it, pure sine tones only
-// (detuned layers "beat" against each other, which gets tiring fast).
+// (detuned layers "beat" against each other, which gets tiring fast), and everything
+// below 140 Hz is filtered out: small speakers can't move that much air and crackle.
 // No audio files, so nothing to license and nothing to download.
 
-const VOLUME = 0.6;
+const VOLUME = 0.22;
 
 const hz = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
 
@@ -38,23 +39,30 @@ export class AmbientScore {
     }
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return;
-    const ctx = new AudioCtx();
+    // 'playback' asks for larger audio buffers: a little latency (irrelevant for ambience)
+    // in exchange for no dropouts, which is what makes speakers crackle on busy machines
+    const ctx = new AudioCtx({ latencyHint: 'playback' });
     this.ctx = ctx;
 
-    // master -> gentle compressor -> speakers keeps it audible without ever getting sharp
+    // master -> high-pass (no sub-bass for small speakers) -> soft limiter -> speakers
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -20;
-    comp.knee.value = 18;
-    comp.ratio.value = 3;
-    comp.attack.value = 0.02;
-    comp.release.value = 0.4;
+    comp.threshold.value = -24;
+    comp.knee.value = 12;
+    comp.ratio.value = 6;
+    comp.attack.value = 0.005;
+    comp.release.value = 0.3;
     comp.connect(ctx.destination);
+    const highpass = ctx.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = 140;
+    highpass.Q.value = 0.6;
+    highpass.connect(comp);
     this.master = ctx.createGain();
     this.master.gain.value = 0;
-    this.master.connect(comp);
+    this.master.connect(highpass);
 
     this.reverb = ctx.createConvolver();
-    this.reverb.buffer = this.impulse(5, 2.6);
+    this.reverb.buffer = this.impulse(2.8, 3);
     const wet = ctx.createGain();
     wet.gain.value = 0.55;
     this.reverb.connect(wet).connect(this.master);
@@ -81,7 +89,6 @@ export class AmbientScore {
     this.chimeBus.connect(this.master);
     this.chimeBus.connect(this.reverb);
 
-    this.startAir();
     this.playChord(this.scene);
     this.scheduleChime();
     this.fadeTo(this.muted ? 0 : VOLUME, 2.5);
@@ -134,7 +141,8 @@ export class AmbientScore {
       setTimeout(() => gain.disconnect(), 7500);
     });
 
-    const notes = [{ midi: chord.bass, level: 0.1 }].concat(chord.pad.map((midi) => ({ midi, level: 0.05 })));
+    // The root sits an octave up (130-200 Hz) so it is felt without rattling the speaker
+    const notes = [{ midi: chord.bass + 12, level: 0.06 }].concat(chord.pad.map((midi) => ({ midi, level: 0.045 })));
     this.voices = notes.map(({ midi, level }, n) => {
       const gain = ctx.createGain();
       gain.gain.value = 0;
@@ -173,29 +181,6 @@ export class AmbientScore {
     osc.start(at);
     osc.stop(at + 4.6);
     setTimeout(() => gain.disconnect(), 5000);
-  }
-
-  // Low brown noise, like distant wind, so the silence between notes feels warm
-  startAir() {
-    const ctx = this.ctx;
-    const length = ctx.sampleRate * 4;
-    const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    let last = 0;
-    for (let i = 0; i < length; i++) {
-      last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02;
-      data[i] = last * 3.5;
-    }
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.loop = true;
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 600;
-    const gain = ctx.createGain();
-    gain.gain.value = 0.025;
-    source.connect(filter).connect(gain).connect(this.master);
-    source.start();
   }
 
   impulse(seconds, decay) {
