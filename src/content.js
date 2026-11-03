@@ -5,7 +5,7 @@ export const profile = {
   last: 'Agarwal',
   tagline: 'Builder of Billlion. Writer of stories. Headed for IIM.',
   email: 'tisdevansh@gmail.com',
-  linkedin: 'https://www.linkedin.com/in/devansh-agarwal-3640643b0/',
+  linkedin: 'https://www.linkedin.com/in/tisdevansh/',
   linktree: 'https://linktr.ee/tisdevansh',
 };
 
