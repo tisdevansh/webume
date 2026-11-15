@@ -9,9 +9,8 @@ import { MotionPathPlugin } from 'gsap/MotionPathPlugin';
 import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin';
 import Lenis from 'lenis';
 import { AmbientScore } from './engine/ambient';
-import { billlion, credits, hero, next, profile, record, sarathi, scenes, skillTree, terminal, vigil, work } from './content';
+import { billlion, credits, hero, next, profile, record, sarathi, scenes, skillTree, terminal, vigil } from './content';
 import ThrowDeck from './components/ThrowDeck';
-import WorkSphere from './components/WorkSphere';
 import VigilScene from './scenes/Vigil';
 import SarathiScene from './scenes/Sarathi';
 import { Arrow, buzz, coarsePointer, confetti, idle, prefersReducedMotion, Title, yieldToMain } from './ui';
@@ -99,11 +98,33 @@ function Cursor() {
     };
     const down = () => ringRef.current.classList.add('is-down');
     const up = () => ringRef.current.classList.remove('is-down');
+    // Scrolling moves the page under a still pointer, so re-read what it is over
+    let at = null;
+    let queued = false;
+    const track = (e) => (at = [e.clientX, e.clientY]);
+    const onScroll = () => {
+      if (!at || queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        const el = document.elementFromPoint(at[0], at[1]);
+        const hint = el && el.closest('[data-cursor]');
+        const nextLabel = hint ? hint.dataset.cursor : '';
+        if (nextLabel !== last) {
+          last = nextLabel;
+          setLabel(nextLabel);
+        }
+      });
+    };
+    window.addEventListener('pointermove', track, { passive: true });
+    window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('pointermove', onMove, { passive: true });
     window.addEventListener('pointerdown', down);
     window.addEventListener('pointerup', up);
     return () => {
       window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointermove', track);
+      window.removeEventListener('scroll', onScroll);
       window.removeEventListener('pointerdown', down);
       window.removeEventListener('pointerup', up);
       root.classList.remove('has-cursor');
@@ -908,11 +929,6 @@ function Credits({ onReplay }) {
   return (
     <section className="scene sc-credits" id="credits" data-scene="credits">
       <div className="wrap">
-        <div className="work">
-          <p className="kicker">Everything so far</p>
-          <Title as="h2" className="h2" lines={['All the work,', 'in one place.']} />
-          <WorkSphere items={work} />
-        </div>
         {!said ? (
           <div className="ask">
             <Title as="h2" className="h2 ask-q" lines={['So, should we build', 'something together?']} />
@@ -1048,9 +1064,11 @@ const sceneMotion = (desktop) => ({
     // Mayu lands and fans out; the promo tilts up off the floor
     gsap
       .timeline({ scrollTrigger: { trigger: '.vg-hero', start: 'top 70%' } })
-      .from('.vg-mayu', { y: 60, scale: 0.85, duration: 1.2, ease: 'elastic.out(1, 0.6)' });
+      .from('.vg-mayu', { y: 140, scale: 0.4, duration: 1, ease: 'elastic.out(1, 0.55)' })
+      .fromTo('.vg-mayu .pk-feather', { rotation: 0, svgOrigin: '60 76' }, { rotation: (i, f) => Number(f.dataset.a), svgOrigin: '60 76', duration: 0.9, stagger: 0.035, ease: 'back.out(2)' }, 0.25);
     gsap.fromTo('.vg-promo', { rotationX: desktop ? 24 : 10, scale: 0.88 }, { rotationX: 0, scale: 1, ease: 'none', scrollTrigger: { trigger: '.vg-promo', start: 'top bottom', end: 'top 35%', scrub: true } });
     gsap.from('.vg-toys .toy', { y: 80, rotation: (i) => (i ? 3 : -3), duration: 1, stagger: 0.12, ease: 'dev', scrollTrigger: { trigger: '.vg-toys', start: 'top 85%' } });
+    gsap.from('.vg-shot', { x: 120, duration: 1, stagger: 0.06, ease: 'dev', scrollTrigger: { trigger: '.vg-screens', start: 'top 90%' } });
   },
   craft: (el) => {
     titles(el);

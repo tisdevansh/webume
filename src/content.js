@@ -145,23 +145,6 @@ export const vigil = {
     { src: vigilImg('stats'), label: 'Stats' },
   ],
   demoNote: 'Screens from Vigil running with a demo student.',
-  ribbon: {
-    lines: ["SOMEONE'S", 'WATCHING'],
-    caption: 'Every screen of Vigil, in one pass',
-    items: [
-      { title: 'Promo', short: 'promo', src: `${process.env.PUBLIC_URL}/media/vigil-promo-poster.jpg`, video: `${process.env.PUBLIC_URL}/media/vigil-promo.mp4` },
-      ...[
-        ['home', 'Today', 'today'],
-        ['focus', 'Start a session', 'focus'],
-        ['plan', 'Daily plan', 'plan'],
-        ['stats', 'Stats', 'stats'],
-        ['session', 'Focus session', 'session'],
-        ['shield', 'Rules and blocks', 'rules'],
-        ['practice', 'Practice', 'practice'],
-        ['ended', 'Check-in mode', 'check-ins'],
-      ].map(([f, title, short]) => ({ title, short, src: vigilImg(`desk-${f}`) })),
-    ],
-  },
 };
 
 const sarathiImg = (name) => `${process.env.PUBLIC_URL}/images/sarathi/${name}.webp`;
@@ -241,20 +224,6 @@ export const sarathi = {
   ],
   disclaimer: 'Made in Minecraft. Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.',
 };
-
-// Everything shipped, for the sphere at the end
-const pub = (p) => `${process.env.PUBLIC_URL}/${p}`;
-export const work = [
-  ...billlion.shots.map((s) => ({ src: s.src, title: s.title, category: 'Billlion', body: s.body, w: 2000, h: 1250 })),
-  { src: pub('images/vigil/session.webp'), title: 'Focus session', category: 'Vigil', body: 'A strict timer with a 2-minute pee break. Away time and blocked tries are counted, not hidden.', w: 780, h: 1688 },
-  { src: pub('images/vigil/blocked-reels.webp'), title: 'Reels blocked', category: 'Vigil', body: "Mayu's block screen, with the student's own goal quoted back at them.", w: 780, h: 1688 },
-  { src: pub('images/vigil/home.webp'), title: 'Today', category: 'Vigil', body: "Focus ring, streak, exam countdown and the day's plan on one screen.", w: 780, h: 1688 },
-  { src: pub('images/vigil/plan-desktop.webp'), title: 'Daily plan on Windows', category: 'Vigil', body: 'Tasks sized to the student, weighted by how much each topic counts in the exam.', w: 1440, h: 900 },
-  { src: pub('images/vigil/stats.webp'), title: 'Stats', category: 'Vigil', body: 'Daily focus against target, and a 20-week heatmap of consistency.', w: 780, h: 1688 },
-  { src: pub('media/vigil-promo-poster.jpg'), title: 'Vigil promo', category: 'Vigil', body: 'The 16-second promo, made with real screens from the app.', w: 1280, h: 720 },
-  { src: pub('images/sarathi/key-art.webp'), title: 'Sarathi key art', category: 'Sarathi', body: 'Krishna ji and Arjun by the river at sunset. The look of the series.', w: 1024, h: 572 },
-  { src: pub('images/vigil/plan.webp'), title: 'Plan on the phone', category: 'Vigil', body: 'Timed tasks tagged habit, learn or practice, starting with a deliberately tiny one.', w: 780, h: 1688 },
-];
 
 export const next = {
   line: 'Preparing for IPMAT 2027, the entrance to the five-year Integrated Programme in Management.',
