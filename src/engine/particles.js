@@ -246,30 +246,66 @@ function bars(count) {
   return out;
 }
 
-// A film reel seen face-on
-function reel(count) {
-  const holes = Array.from({ length: 6 }, (_, k) => [Math.cos((k * Math.PI) / 3) * 0.56, Math.sin((k * Math.PI) / 3) * 0.56]);
+// An open eye with an iris and pupil: Vigil watching the desk
+function eye(count) {
   const out = new Float32Array(count * 3);
-  let i = 0;
-  while (i < count) {
+  for (let i = 0; i < count; i++) {
+    const r = Math.random();
     let x;
     let y;
-    if (Math.random() < 0.2) {
+    if (r < 0.42) {
+      // upper and lower lids
+      const t = rand(-1, 1);
+      const lid = Math.cos((t * Math.PI) / 2) * 0.55;
+      x = t * 1.5;
+      y = (Math.random() < 0.5 ? lid : -lid) + rand(-0.02, 0.02);
+    } else if (r < 0.82) {
+      // iris ring
       const a = Math.random() * Math.PI * 2;
-      const r = rand(0.98, 1.04);
-      x = Math.cos(a) * r;
-      y = Math.sin(a) * r;
+      const rr = rand(0.26, 0.48);
+      x = Math.cos(a) * rr;
+      y = Math.sin(a) * rr;
     } else {
-      x = rand(-1, 1);
-      y = rand(-1, 1);
-      const r = Math.hypot(x, y);
-      if (r > 1 || r < 0.12) continue;
-      if (holes.some(([hx, hy]) => Math.hypot(x - hx, y - hy) < 0.22)) continue;
+      // lashes
+      const t = rand(-0.8, 0.8);
+      const l = rand(0, 0.22);
+      const base = Math.cos((t * Math.PI) / 2) * 0.55;
+      x = t * 1.5 * (1 + l * 0.4);
+      y = base + 0.04 + l;
+    }
+    out[i * 3] = x;
+    out[i * 3 + 1] = y;
+    out[i * 3 + 2] = rand(-0.05, 0.05);
+  }
+  return out;
+}
+
+// A chariot wheel with eight spokes: Krishna as Arjun's sarathi
+function wheel(count) {
+  const out = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const r = Math.random();
+    let x;
+    let y;
+    if (r < 0.45) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = Math.random() < 0.6 ? rand(0.9, 1) : rand(0.8, 0.84);
+      x = Math.cos(a) * rr;
+      y = Math.sin(a) * rr;
+    } else if (r < 0.88) {
+      const a = (Math.floor(Math.random() * 8) * Math.PI) / 4 + rand(-0.025, 0.025);
+      const rr = rand(0.16, 0.82);
+      x = Math.cos(a) * rr;
+      y = Math.sin(a) * rr;
+    } else {
+      const a = Math.random() * Math.PI * 2;
+      const rr = rand(0, 0.16);
+      x = Math.cos(a) * rr;
+      y = Math.sin(a) * rr;
     }
     out[i * 3] = x;
     out[i * 3 + 1] = y;
     out[i * 3 + 2] = rand(-0.04, 0.04);
-    i++;
   }
   return out;
 }
@@ -289,25 +325,26 @@ function galaxy(count) {
   return out;
 }
 
-// Scene index → generator and idle motion. Index 7 is the opening gate.
+// Scene index → generator and idle motion. Index 8 is the opening gate.
 const SHAPES = [
   { make: text('DEVANSH'), motion: 'sway' },
   { make: sphere, motion: 'spin' },
   { make: bars, motion: 'sway' },
+  { make: eye, motion: 'sway' },
   { make: text('</>'), motion: 'sway' },
-  { make: reel, motion: 'roll' },
+  { make: wheel, motion: 'roll' },
   { make: text('2027'), motion: 'sway' },
   { make: galaxy, motion: 'roll' },
   { make: galaxy, motion: 'roll' },
 ];
 
-export const GATE_SHAPE = 7;
+export const GATE_SHAPE = 8;
 
 export class ParticleStage {
   constructor(canvas, { colors, reducedMotion }) {
     this.reduced = reducedMotion;
     this.colors = colors.map((c) => new THREE.Color(c));
-    this.count = window.innerWidth < 760 ? 4000 : 9000;
+    this.count = window.innerWidth < 760 ? 2600 : 8000;
     this.drawCount = this.count;
     this.frameAvg = 16;
     this.frames = 0;
@@ -448,6 +485,8 @@ export class ParticleStage {
     const worldW = worldH * this.camera.aspect;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    this.worldW = worldW;
+    this.worldH = worldH;
     this.shapes = this.rects.map((r, i) => ({
       base: fit(SHAPES[i].make(this.count), (r.w / vw) * worldW, (r.h / vh) * worldH),
       cx: (r.x / vw - 0.5) * worldW,
@@ -466,6 +505,7 @@ export class ParticleStage {
   }
 
   onPointer(e) {
+    this.pointerSeen = e.pointerType === 'mouse';
     this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     this.mouse.y = -((e.clientY / window.innerHeight) * 2 - 1);
   }
@@ -492,6 +532,11 @@ export class ParticleStage {
       const { base, cx, cy } = shape;
       const pos = this.positions;
       const frames = dt * 60;
+      // The pointer pushes particles aside, so every shape can be poked at
+      const mx = this.mouse.x * (this.worldW || 0) * 0.5;
+      const my = this.mouse.y * (this.worldH || 0) * 0.5;
+      const push = this.reduced || !this.pointerSeen ? 0 : 0.16 * frames;
+      const R2 = 0.8;
       for (let i = 0, j = 0; i < this.drawCount; i++, j += 3) {
         const bx = base[j];
         const by = base[j + 1];
@@ -512,6 +557,16 @@ export class ParticleStage {
         pos[j] += (tx + cx - pos[j]) * k;
         pos[j + 1] += (ty + cy - pos[j + 1]) * k;
         pos[j + 2] += (tz - pos[j + 2]) * k;
+        if (push) {
+          const dx = pos[j] - mx;
+          const dy = pos[j + 1] - my;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < R2) {
+            const f = (1 - d2 / R2) * push;
+            pos[j] += dx * f;
+            pos[j + 1] += dy * f;
+          }
+        }
       }
       this.geometry.attributes.position.needsUpdate = true;
       this.uniforms.uColor.value.lerp(shape.color, 0.04);

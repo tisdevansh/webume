@@ -2,63 +2,24 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { SplitText } from 'gsap/SplitText';
+import { Draggable } from 'gsap/Draggable';
+import { InertiaPlugin } from 'gsap/InertiaPlugin';
 import Lenis from 'lenis';
 import { AmbientScore } from './engine/ambient';
 import { GATE_SHAPE, ParticleStage } from './engine/particles';
-import { billlion, credits, next, profile, record, scenes, skillTree, stories, terminal } from './content';
+import { billlion, credits, hero, next, profile, record, sarathi, scenes, skillTree, terminal, vigil } from './content';
+import VigilScene from './scenes/Vigil';
+import SarathiScene from './scenes/Sarathi';
+import { Arrow, BgWord, buzz, coarsePointer, confetti, Eyebrow, Line, pad, prefersReducedMotion, spotlight } from './ui';
 import './site.css';
+import './scenes.css';
 
-gsap.registerPlugin(ScrollTrigger, SplitText);
+gsap.registerPlugin(ScrollTrigger, SplitText, Draggable, InertiaPlugin);
 
 // Length shown on the timeline. Purely for the "watching a film" feel.
 const RUNTIME = 210;
 
-const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-const pad = (n) => String(n).padStart(2, '0');
 const formatTime = (s) => `${pad(Math.floor(s / 60))}:${pad(Math.floor(s % 60))}`;
-
-// --- Small pieces ---
-
-function Line({ children, serif = false }) {
-  return (
-    <span className="mask">
-      <span className={serif ? 'serif' : undefined}>{children}</span>
-    </span>
-  );
-}
-
-function Arrow() {
-  return (
-    <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M7 17 17 7M8 7h9v9" />
-    </svg>
-  );
-}
-
-function Eyebrow({ index, children }) {
-  return (
-    <p className="eyebrow">
-      <span>Scene {pad(index)}</span>
-      <span>{children}</span>
-    </p>
-  );
-}
-
-// A giant outlined word drifting behind a scene; the outer layer follows the pointer
-function BgWord({ children, depth = 24 }) {
-  return (
-    <div className="bg-layer layer" data-depth={depth} aria-hidden="true">
-      <span className="bg-word">{children}</span>
-    </div>
-  );
-}
-
-// Cards light up where the pointer is
-const spotlight = (e) => {
-  const r = e.currentTarget.getBoundingClientRect();
-  e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`);
-  e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`);
-};
 
 // Position of el's box inside ancestor, ignoring transforms (so mid-animation offsets don't skew it)
 function offsetWithin(el, ancestor) {
@@ -73,6 +34,446 @@ function offsetWithin(el, ancestor) {
   return { x, y, w: el.offsetWidth, h: el.offsetHeight };
 }
 
+// A real terminal: the scripted lines type themselves out, then it takes commands
+const COMMANDS = {
+  help: () => ['commands: whoami · ls · cat stack.txt · open <billlion|vigil|sarathi|iim> · updesh · ipmat · date · sudo hire devansh · clear'],
+  whoami: () => ['devansh agarwal: builds software, writes stories'],
+  ls: () => ['billlion/   vigil/   sarathi/   webume/'],
+  'cat stack.txt': () => ['Python · Java · C/C++ · JavaScript · Firebase · MongoDB'],
+  updesh: () => ['कर्मण्येवाधिकारस्ते मा फलेषु कदाचन', 'do the work. drop the worry about results. (Gita 2.47)'],
+  gita: () => COMMANDS.updesh(),
+  ipmat: () => ['IIM Indore ▸ loading… ▓▓▓▓▓▓▓░░░ 2027'],
+  date: () => [new Date().toDateString()],
+  vigil: () => ['Mayu is watching 👀  try: open vigil'],
+  'sudo hire devansh': () => ['[sudo] permission granted ✓', `mail: ${profile.email}`],
+  'sudo rm -rf /': () => ['nice try. Mayu blocked that 🦚'],
+  exit: () => ['there is no exit. only the next scene.'],
+};
+const TARGETS = { billlion: 'billlion', vigil: 'vigil', sarathi: 'sarathi', gita: 'sarathi', iim: 'next', ipmat: 'next', contact: 'credits' };
+
+function Terminal() {
+  const [log, setLog] = useState([]);
+  const [value, setValue] = useState('');
+  const history = useRef([]);
+  const cursor = useRef(0);
+  const inputRef = useRef(null);
+  const bodyRef = useRef(null);
+
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+  }, [log]);
+
+  const run = (raw) => {
+    const cmd = raw.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!cmd) return;
+    history.current.push(cmd);
+    cursor.current = history.current.length;
+    if (cmd === 'clear') {
+      setLog([]);
+      return;
+    }
+    let out;
+    if (cmd.startsWith('open ')) {
+      const id = TARGETS[cmd.slice(5)];
+      out = id ? [`opening ${cmd.slice(5)}…`] : [`open: no such scene. try billlion, vigil, sarathi or iim`];
+      if (id) setTimeout(() => window.dispatchEvent(new CustomEvent('webume:goto', { detail: id })), 400);
+    } else {
+      out = COMMANDS[cmd] ? COMMANDS[cmd]() : [`command not found: ${cmd}. try 'help'`];
+    }
+    setLog((l) => l.concat({ kind: 'cmd', text: cmd }, out.map((text) => ({ kind: 'out', text }))).slice(-40));
+  };
+
+  const onKey = (e) => {
+    if (e.key === 'Enter') {
+      run(value);
+      setValue('');
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const h = history.current;
+      cursor.current = Math.max(0, Math.min(h.length, cursor.current + (e.key === 'ArrowUp' ? -1 : 1)));
+      setValue(h[cursor.current] || '');
+    }
+  };
+
+  return (
+    <div className="terminal" onClick={() => inputRef.current?.focus({ preventScroll: true })}>
+      <div className="term-bar">
+        <i />
+        <i />
+        <i />
+        <span>~/devansh</span>
+      </div>
+      <div className="term-body" ref={bodyRef} data-lenis-prevent>
+        {terminal.map((l, i) => (
+          <p key={i} className={`term-line ${l.kind}`} data-text={l.text}>
+            {l.text}
+          </p>
+        ))}
+        {log.map((l, i) => (
+          <p key={`l${i}`} className={`term-log ${l.kind}`}>
+            {l.text}
+          </p>
+        ))}
+        <label className="term-input">
+          <span className="sr-only">Type a command</span>
+          <input
+            ref={inputRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={onKey}
+            placeholder="type 'help'"
+            spellCheck="false"
+            autoComplete="off"
+            autoCapitalize="off"
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+// Prints a boarding pass to IIM out of a slot
+function BoardingPass() {
+  const [printed, setPrinted] = useState(false);
+  const passRef = useRef(null);
+  const print = () => {
+    if (printed) {
+      gsap.fromTo(passRef.current, { rotate: -2 }, { rotate: 0, duration: 0.6, ease: 'elastic.out(1, 0.4)' });
+      return;
+    }
+    setPrinted(true);
+  };
+  useEffect(() => {
+    if (!printed) return;
+    gsap
+      .timeline()
+      .fromTo(passRef.current, { yPercent: -100 }, { yPercent: 0, duration: 1.8, ease: 'steps(16)' })
+      .to(passRef.current, { rotate: -1.5, duration: 0.3, ease: 'power2.out' })
+      .to(passRef.current, { rotate: 0, duration: 0.8, ease: 'elastic.out(1, 0.4)' });
+  }, [printed]);
+  return (
+    <div className="bp-wrap">
+      <button type="button" className="btn" onClick={print} data-magnetic>
+        {printed ? 'Boarding pass printed ✓' : 'Print my boarding pass'}
+      </button>
+      <div className="bp-slot">
+        {printed && (
+          <div className="bp" ref={passRef}>
+            <div className="bp-main">
+              <div className="bp-row">
+                <span>Passenger</span>
+                <b>
+                  {profile.first} {profile.last}
+                </b>
+              </div>
+              <div className="bp-route">
+                <div>
+                  <small>From</small>
+                  <strong>XII</strong>
+                  <span>Science · PCM</span>
+                </div>
+                <i aria-hidden="true">✈</i>
+                <div>
+                  <small>To</small>
+                  <strong>IIM</strong>
+                  <span>Indore</span>
+                </div>
+              </div>
+              <div className="bp-grid">
+                <div>
+                  <small>Flight</small>
+                  <b>IPMAT-27</b>
+                </div>
+                <div>
+                  <small>Gate</small>
+                  <b>QA · VA · LR</b>
+                </div>
+                <div>
+                  <small>Class</small>
+                  <b>5-yr IPM</b>
+                </div>
+              </div>
+            </div>
+            <div className="bp-stub" aria-hidden="true">
+              <span>Boarding</span>
+              <b>2027</b>
+              <div className="bp-code">
+                {Array.from({ length: 28 }, (_, i) => (
+                  <i key={i} style={{ width: `${1 + ((i * 7) % 4)}px` }} />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- Interactions mixed in from the redesign ---
+
+const inr = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+
+// Report cards you scratch to reveal
+function ScratchCard({ r }) {
+  const canvasRef = useRef(null);
+  const cardRef = useRef(null);
+  const valueRef = useRef(null);
+  const doneRef = useRef(false);
+  const [done, setDone] = useState(false);
+
+  const reveal = useCallback(() => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    setDone(true);
+    buzz([20, 40, 60]);
+    gsap.to(canvasRef.current, { autoAlpha: 0, duration: 0.5 });
+    const n = { v: 0 };
+    gsap.to(n, { v: r.value, duration: 1.4, ease: 'expo.out', onUpdate: () => valueRef.current && (valueRef.current.textContent = n.v.toFixed(1)) });
+    const b = cardRef.current.getBoundingClientRect();
+    confetti(b.left + b.width / 2, b.top + b.height / 2, 40);
+  }, [r.value]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const { width, height } = cardRef.current.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const g = ctx.createLinearGradient(0, 0, width, height);
+    g.addColorStop(0, '#2b2a30');
+    g.addColorStop(0.5, '#4a4852');
+    g.addColorStop(1, '#2b2a30');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = 'rgba(243,238,230,0.8)';
+    ctx.font = '500 15px Geist, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(coarsePointer() ? 'Scratch with your finger' : 'Scratch here', width / 2, height / 2 + 5);
+    let moves = 0;
+    let lastPt = null;
+    const scratch = (e) => {
+      const b = canvas.getBoundingClientRect();
+      const x = e.clientX - b.left;
+      const y = e.clientY - b.top;
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.lineWidth = 46;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(lastPt ? lastPt[0] : x, lastPt ? lastPt[1] : y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      lastPt = [x, y];
+      moves += 1;
+      if (moves % 8) return;
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let clear = 0;
+      let total = 0;
+      for (let i = 3; i < data.length; i += 4 * 97) {
+        total += 1;
+        if (data[i] === 0) clear += 1;
+      }
+      if (clear / total > 0.35) reveal();
+    };
+    const down = (e) => {
+      lastPt = null;
+      scratch(e);
+      canvas.addEventListener('pointermove', scratch);
+    };
+    const up = () => canvas.removeEventListener('pointermove', scratch);
+    canvas.addEventListener('pointerdown', down);
+    window.addEventListener('pointerup', up);
+    return () => {
+      canvas.removeEventListener('pointerdown', down);
+      canvas.removeEventListener('pointermove', scratch);
+      window.removeEventListener('pointerup', up);
+    };
+  }, [reveal]);
+
+  return (
+    <article className={`scratch${done ? ' is-done' : ''}`} ref={cardRef}>
+      <div className="scratch-under">
+        <span className="scratch-grade">
+          {r.grade} · {r.track}
+        </span>
+        <span className="scratch-value">
+          <b ref={valueRef}>{r.value.toFixed(1)}</b>
+          <small>%</small>
+        </span>
+        <span className="scratch-meta">{r.school}</span>
+      </div>
+      <canvas ref={canvasRef} className="scratch-cover" aria-hidden="true" />
+      {!done && (
+        <button type="button" className="sr-only" onClick={reveal}>
+          Reveal the {r.grade} result
+        </button>
+      )}
+    </article>
+  );
+}
+
+// A simplified Billlion counter: tap products, GST is worked out per line
+const STOCK = [
+  { name: 'Cotton kurta', price: 899, gst: 5 },
+  { name: 'Denim jeans', price: 1499, gst: 5 },
+  { name: 'Linen shirt', price: 1199, gst: 5 },
+  { name: 'Wedding sherwani', price: 8999, gst: 18 },
+];
+
+function Counter() {
+  const [qty, setQty] = useState({});
+  const [billNo, setBillNo] = useState(41);
+  const totalRef = useRef(null);
+  const shown = useRef(0);
+  const lines = STOCK.map((s, i) => ({ ...s, q: qty[i] || 0 })).filter((l) => l.q);
+  const sub = lines.reduce((a, l) => a + l.price * l.q, 0);
+  const tax = lines.reduce((a, l) => a + (l.price * l.q * l.gst) / 100, 0);
+  const total = sub + tax;
+  useEffect(() => {
+    const n = { v: shown.current };
+    const t = gsap.to(n, { v: total, duration: 0.6, ease: 'expo.out', onUpdate: () => totalRef.current && (totalRef.current.textContent = inr(n.v)) });
+    shown.current = total;
+    return () => t.kill();
+  }, [total]);
+  const add = (i, e) => {
+    setQty((q) => ({ ...q, [i]: (q[i] || 0) + 1 }));
+    buzz(8);
+    gsap.fromTo(e.currentTarget, { scale: 0.93 }, { scale: 1, duration: 0.5, ease: 'elastic.out(1, 0.4)' });
+  };
+  return (
+    <div className="counter" onPointerMove={spotlight}>
+      <div className="counter-head">
+        <h3 className="h3">
+          Ring up a bill. <span className="serif">Try the counter.</span>
+        </h3>
+        <p className="lede">The Billlion counter screen, simplified. Tap products and the GST is worked out for every line.</p>
+      </div>
+      <div className="ct">
+        <div className="ct-items">
+          {STOCK.map((s, i) => (
+            <button type="button" key={s.name} className="ct-item" onClick={(e) => add(i, e)}>
+              <b>{s.name}</b>
+              <span>
+                {inr(s.price)} · GST {s.gst}%
+              </span>
+              {qty[i] ? <i className="ct-q">{qty[i]}</i> : null}
+            </button>
+          ))}
+        </div>
+        <div className="ct-bill" aria-live="polite">
+          <div className="ct-row ct-top">
+            <b>Bill {String(billNo).padStart(4, '0')}</b>
+            <button
+              type="button"
+              onClick={() => {
+                setQty({});
+                setBillNo((b) => b + 1);
+              }}
+            >
+              New bill
+            </button>
+          </div>
+          {lines.length ? (
+            <ul>
+              {lines.map((l) => (
+                <li className="ct-row" key={l.name}>
+                  <span>
+                    {l.q} × {l.name}
+                  </span>
+                  <span>{inr(l.price * l.q)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="ct-empty">Tap a product to add it.</p>
+          )}
+          <div className="ct-row ct-sub">
+            <span>Subtotal</span>
+            <span>{inr(sub)}</span>
+          </div>
+          <div className="ct-row ct-sub">
+            <span>GST</span>
+            <span>{inr(tax)}</span>
+          </div>
+          <div className="ct-row ct-total">
+            <span>Total</span>
+            <b ref={totalRef}>₹0</b>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Stickers on the opening shot that can be peeled and moved around
+function HeroStickers() {
+  const ref = useRef(null);
+  useEffect(() => {
+    const ds = Draggable.create(ref.current.querySelectorAll('.sticker'), {
+      type: 'x,y',
+      bounds: ref.current.closest('.s-hero'),
+      inertia: true,
+      onPress() {
+        gsap.to(this.target, { scale: 1.12, duration: 0.25, ease: 'back.out(3)' });
+        this.target.style.zIndex = 30;
+        buzz(10);
+      },
+      onRelease() {
+        gsap.to(this.target, { scale: 1, duration: 0.5, ease: 'elastic.out(1, 0.5)' });
+      },
+    });
+    return () => ds.forEach((d) => d.kill());
+  }, []);
+  return (
+    <div className="hero-stickers" ref={ref}>
+      {hero.stickers.map((s) => (
+        <span key={s.text} className={`sticker tone-${s.tone}`} style={{ left: `${s.x}%`, top: `${s.y}%`, '--r': `${s.r}deg` }}>
+          {s.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// One question at the end; "no" keeps getting away
+const NO = ['No', 'Are you sure?', 'Really?', 'Okay, yes'];
+function Ask() {
+  const [said, setSaid] = useState(false);
+  const [tries, setTries] = useState(0);
+  const zoneRef = useRef(null);
+  const noRef = useRef(null);
+  const yes = (e) => {
+    setSaid(true);
+    buzz([20, 40, 80]);
+    const b = e.currentTarget.getBoundingClientRect();
+    confetti(b.left + b.width / 2, b.top, 90);
+  };
+  const dodge = () => {
+    if (tries >= NO.length - 1) return;
+    const z = zoneRef.current.getBoundingClientRect();
+    const b = noRef.current;
+    gsap.to(b, { x: (Math.random() - 0.5) * Math.max(0, z.width - b.offsetWidth * 2), y: (Math.random() - 0.5) * 70, rotation: (Math.random() - 0.5) * 14, duration: 0.4, ease: 'back.out(2.4)' });
+    buzz(12);
+    setTries((t) => t + 1);
+  };
+  if (said) return <p className="ask-done serif">Good answer. Write to me.</p>;
+  return (
+    <div className="ask">
+      <p className="ask-q">So, should we build something together?</p>
+      <div className="ask-zone" ref={zoneRef}>
+        <button type="button" className="btn btn-primary" onClick={yes} data-magnetic>
+          Yes, let's talk
+        </button>
+        <button type="button" ref={noRef} className="btn" onPointerEnter={(e) => e.pointerType === 'mouse' && dodge()} onClick={(e) => (tries >= NO.length - 1 ? yes(e) : dodge())}>
+          {NO[tries]}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // --- Chrome: gate, cursor, atmosphere, toast and the player-style HUD ---
 
 function Gate({ progress, onEnter }) {
@@ -80,7 +481,7 @@ function Gate({ progress, onEnter }) {
   return (
     <div className="gate" role="dialog" aria-modal="true" aria-labelledby="gate-name">
       <div className="gate-inner">
-        <p className="gate-kicker">A webume in seven scenes</p>
+        <p className="gate-kicker">A webume in eight scenes</p>
         <p className="gate-name" id="gate-name">
           {profile.first} <span className="serif">{profile.last}</span>
         </p>
@@ -283,6 +684,7 @@ function Hero() {
         </h1>
         <p className="hero-tag">{profile.tagline}</p>
       </div>
+      <HeroStickers />
       <div className="hero-cue">
         <span>
           Scroll to play <i />
@@ -303,24 +705,10 @@ function Record() {
             <Line>Numbers that</Line>
             <Line serif>held up.</Line>
           </h2>
-          <div className="stats">
+          <p className="lede">Board results from Class X and Class XII. Scratch to reveal.</p>
+          <div className="scratch-row">
             {record.map((r) => (
-              <div className="stat" key={r.grade}>
-                <div className="stat-value">
-                  <span data-count={r.value} data-decimals="1">
-                    {r.value.toFixed(1)}
-                  </span>
-                  <small>%</small>
-                </div>
-                <div className="stat-meter">
-                  <i style={{ '--v': r.value / 100 }} />
-                </div>
-                <p className="stat-meta">
-                  <b>{r.grade}</b> · {r.track}
-                  <br />
-                  {r.school}
-                </p>
-              </div>
+              <ScratchCard r={r} key={r.grade} />
             ))}
           </div>
         </div>
@@ -456,7 +844,7 @@ function Craft() {
         <BgWord>CRAFT</BgWord>
         <div className="split">
           <div className="split-copy">
-            <Eyebrow index={4}>The craft</Eyebrow>
+            <Eyebrow index={5}>The craft</Eyebrow>
             <h2 className="display">
               <Line>Code is just</Line>
               <Line serif>another script.</Line>
@@ -464,25 +852,11 @@ function Craft() {
             <p className="lede">
               Billlion taught me that good software is a story told in logic. Every screen is a scene, and every function has to earn its place.
             </p>
+            <p className="term-hint">The terminal is real. Type <code>help</code>.</p>
           </div>
           <div className="craft-visual">
             <div className="shape-anchor craft-anchor" />
-            <div className="terminal">
-              <div className="term-bar">
-                <i />
-                <i />
-                <i />
-                <span>~/devansh</span>
-              </div>
-              <div className="term-body">
-                {terminal.map((l, i) => (
-                  <p key={i} className={`term-line ${l.kind}`} data-text={l.text}>
-                    {l.text}
-                  </p>
-                ))}
-                <span className="term-cursor" aria-hidden="true" />
-              </div>
-            </div>
+            <Terminal />
           </div>
         </div>
       </div>
@@ -506,70 +880,13 @@ function Craft() {
   );
 }
 
-function Stories() {
-  return (
-    <section className="scene s-stories" id="stories">
-      <div className="st-pin">
-        <div className="shape-anchor st-anchor" />
-        <div className="st-intro">
-          <Eyebrow index={5}>The stories</Eyebrow>
-          <h2 className="display">
-            <Line>Some ideas</Line>
-            <Line serif>deserve a screen.</Line>
-          </h2>
-        </div>
-        <figure className="st-frame">
-          <img src={stories.image} alt={stories.imageAlt} />
-          <div className="st-bars" aria-hidden="true">
-            <i />
-            <i />
-          </div>
-          <div className="st-tag">
-            <span>Now developing</span>
-            <strong>{stories.title}</strong>
-          </div>
-          <figcaption className="st-captions">
-            {stories.captions.map((c) => (
-              <span className="st-cap" key={c}>
-                {c}
-              </span>
-            ))}
-          </figcaption>
-        </figure>
-      </div>
-
-      <div className="room" data-dim>
-        <div className="room-head">
-          <h3 className="h3">
-            Short films, <span className="serif">in the making.</span>
-          </h3>
-          <p className="lede">It started with poetry and creative writing. Script writing is the next chapter, and it already has a pipeline.</p>
-        </div>
-        <ol className="room-steps">
-          {stories.pipeline.map((s, i) => (
-            <li className="step" key={s.title} onPointerMove={spotlight}>
-              <div className="step-top">
-                <span>{pad(i + 1)}</span>
-                <span className={`status status-${s.status}`}>{s.status === 'done' ? 'Done' : s.status === 'now' ? 'In progress' : 'Up next'}</span>
-              </div>
-              <h4>{s.title}</h4>
-              <p>{s.body}</p>
-            </li>
-          ))}
-        </ol>
-        <p className="st-disclaimer">{stories.disclaimer}</p>
-      </div>
-    </section>
-  );
-}
-
 function Next() {
   return (
     <section className="scene s-next" id="next">
       <BgWord>IIM 2027</BgWord>
       <div className="split">
         <div className="split-copy">
-          <Eyebrow index={6}>What's next</Eyebrow>
+          <Eyebrow index={7}>What's next</Eyebrow>
           <h2 className="display">
             <Line>Next stop:</Line>
             <Line serif>IIM.</Line>
@@ -591,7 +908,10 @@ function Next() {
             ))}
           </div>
         </div>
-        <div className="shape-anchor split-visual" />
+        <div className="next-visual">
+          <div className="shape-anchor split-visual" />
+          <BoardingPass />
+        </div>
       </div>
     </section>
   );
@@ -603,11 +923,12 @@ function Credits({ onReplay }) {
       <BgWord depth={14}>FIN</BgWord>
       <div className="shape-anchor credits-anchor" />
       <div className="contact">
-        <Eyebrow index={7}>Credits</Eyebrow>
+        <Eyebrow index={8}>Credits</Eyebrow>
         <h2 className="display">
           <Line>Let's write</Line>
           <Line serif>the next scene.</Line>
         </h2>
+        <Ask />
         <a className="contact-mail" href={`mailto:${profile.email}`}>
           {profile.email} <Arrow />
         </a>
@@ -619,6 +940,7 @@ function Credits({ onReplay }) {
             All my links <Arrow />
           </a>
         </div>
+
       </div>
 
       <div className="credits-roll">
@@ -642,7 +964,7 @@ function Credits({ onReplay }) {
   );
 }
 
-// All seven scenes. Memoised so scene changes (which update the HUD) never re-render the film.
+// All eight scenes. Memoised so scene changes (which update the HUD) never re-render the film.
 const Film = memo(function Film({ onReplay }) {
   return (
     <main>
@@ -654,12 +976,18 @@ const Film = memo(function Film({ onReplay }) {
       </div>
       <div className="scene-wrap">
         <Billlion />
+        <div className="counter-wrap" data-dim>
+          <Counter />
+        </div>
+      </div>
+      <div className="scene-wrap">
+        <VigilScene index={4} />
       </div>
       <div className="scene-wrap">
         <Craft />
       </div>
       <div className="scene-wrap">
-        <Stories />
+        <SarathiScene index={6} />
       </div>
       <div className="scene-wrap">
         <Next />
@@ -678,19 +1006,6 @@ function buildTimelines(desktop) {
   const restore = [];
   if (desktop) root.classList.add('cine');
   restore.push(() => root.classList.remove('cine'));
-
-  const countUp = (tl, el, at, duration = 1) => {
-    const target = parseFloat(el.dataset.count);
-    const decimals = Number(el.dataset.decimals || 0);
-    const original = el.textContent;
-    const format = (v) => v.toLocaleString('en-IN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-    const state = { v: 0 };
-    el.textContent = format(0);
-    restore.push(() => {
-      el.textContent = original;
-    });
-    tl.to(state, { v: target, duration, ease: 'power2.out', onUpdate: () => (el.textContent = format(state.v)) }, at);
-  };
 
   const typeOut = (tl, el, perChar) => {
     const full = el.dataset.text;
@@ -743,15 +1058,12 @@ function buildTimelines(desktop) {
   // Record: headline, then the numbers count up
   {
     headline('.s-record');
+    // the two report cards deal in, then hold so they can be scratched
     const tl = desktop
       ? gsap.timeline({ scrollTrigger: { trigger: '.s-record', start: 'top top', end: '+=140%', pin: true, scrub: 1 } })
-      : gsap.timeline({ scrollTrigger: { trigger: '.stats', start: 'top 80%' }, defaults: { duration: 1.4 } });
-    tl.from('.s-record .stat', { autoAlpha: 0, y: 40, rotateX: -25, stagger: 0.25, duration: 0.5 }, 0.35);
-    gsap.utils.toArray('.s-record [data-count]').forEach((el, i) => {
-      countUp(tl, el, 0.45 + i * 0.25);
-      tl.from(el.closest('.stat').querySelector('.stat-meter i'), { scaleX: 0, duration: 1, ease: 'power2.out' }, 0.45 + i * 0.25);
-    });
-    if (desktop) tl.to({}, { duration: 0.5 });
+      : gsap.timeline({ scrollTrigger: { trigger: '.scratch-row', start: 'top 80%' } });
+    tl.from('.s-record .lede', { autoAlpha: 0, y: 20, duration: 0.4 }, 0.2).from('.s-record .scratch', { autoAlpha: 0, y: 60, rotation: (i) => (i ? 6 : -6), stagger: 0.2, duration: 0.6, ease: 'expo.out' }, 0.35);
+    if (desktop) tl.to({}, { duration: 0.9 });
   }
 
   // Billlion: the name lands, the product's screens rise as an exploded stack of layers, then deal out one by one
@@ -795,6 +1107,24 @@ function buildTimelines(desktop) {
       gsap.from(shot, { autoAlpha: 0, y: 60, rotateX: 28, transformOrigin: '50% 0%', duration: 1.2, ease: 'expo.out', scrollTrigger: { trigger: shot, start: 'top 85%' } })
     );
     revealOnEnter('.bl-role', '.bl-role');
+  }
+
+  // Vigil: Mayu lands and fans out, the promo tilts up into view, then the lab and features rise
+  {
+    headline('.s-vigil');
+    const tl = gsap.timeline({ scrollTrigger: { trigger: '.vg-hero', start: 'top 70%' } });
+    tl.from('.vg-mayu', { y: 120, scale: 0.3, autoAlpha: 0, duration: 0.9, ease: 'back.out(1.8)' })
+      .fromTo('.vg-mayu .pk-feather', { rotation: 0, svgOrigin: '60 76' }, { rotation: (i, el) => Number(el.dataset.a), svgOrigin: '60 76', duration: 0.8, stagger: 0.03, ease: 'back.out(2)' }, 0.3)
+      .from('.vg-word', { yPercent: 60, autoAlpha: 0, duration: 1, ease: 'expo.out' }, 0.2)
+      .from('.s-vigil .lede, .vg-pills li', { autoAlpha: 0, y: 24, stagger: 0.06, duration: 0.7, ease: 'expo.out' }, 0.6);
+    gsap.fromTo(
+      '.vg-promo',
+      { rotateX: desktop ? 28 : 12, scale: 0.86, autoAlpha: 0.3 },
+      { rotateX: 0, scale: 1, autoAlpha: 1, ease: 'none', scrollTrigger: { trigger: '.vg-promo', start: 'top bottom', end: 'top 30%', scrub: true } }
+    );
+    revealOnEnter('.lab-card', '.vg-lab', { y: 70 });
+    revealOnEnter('.vg-feature', '.vg-features', { y: 50, stagger: 0.07 });
+    revealOnEnter('.vg-gallery-head > *, .vg-shot', '.vg-gallery', { x: 60, y: 0, stagger: 0.06 });
   }
 
   // Craft: the terminal types itself out
@@ -844,17 +1174,17 @@ function buildTimelines(desktop) {
       .from('.tree .chip', { autoAlpha: 0, scale: 0.6, stagger: 0.02, duration: 0.3, ease: 'back.out(2)' }, 1.3);
   }
 
-  // Stories: the concept art opens up into a full-screen frame with subtitles
+  // Sarathi: the key art opens up into a full-screen frame with subtitles
   {
-    headline('.s-stories');
+    headline('.s-sarathi');
     const tl = gsap.timeline({ scrollTrigger: { trigger: '.st-pin', start: 'top top', end: '+=240%', pin: true, scrub: 1 } });
     tl.fromTo(
       '.st-frame',
       { clipPath: desktop ? 'inset(46% 24% 10% 24% round 22px)' : 'inset(48% 4% 14% 4% round 16px)' },
-      { clipPath: 'inset(0% 0% 0% 0% round 0px)', duration: 1.4, ease: 'power2.inOut' },
+      { clipPath: `inset(9% ${Math.round(Math.max(window.innerWidth * 0.04, (window.innerWidth - 1040) / 2))}px 15% ${Math.round(Math.max(window.innerWidth * 0.04, (window.innerWidth - 1040) / 2))}px round 22px)`, duration: 1.4, ease: 'power2.inOut' },
       0.4
     )
-      .fromTo('.st-frame img', { scale: 1.35 }, { scale: 1.04, duration: 2.8, ease: 'none' }, 0.4)
+      .fromTo('.st-frame img', { scale: 1.12 }, { scale: 1, duration: 2.8, ease: 'none' }, 0.4)
       .to('.st-intro', { autoAlpha: 0, y: -80, scale: 0.95, duration: 0.8 }, 0.8)
       .fromTo('.st-bars i', { scaleY: 0 }, { scaleY: 1, duration: 0.6 }, 1.4)
       .from('.st-tag', { autoAlpha: 0, y: 20, duration: 0.4 }, 1.8);
@@ -864,8 +1194,9 @@ function buildTimelines(desktop) {
     });
     tl.to({}, { duration: 0.4 });
 
-    revealOnEnter('.room-head > *', '.room');
-    revealOnEnter('.step', '.room-steps', { y: 60, rotateX: -20, transformOrigin: '50% 0%' });
+    revealOnEnter('.sr-title > *', '.sr-title');
+    revealOnEnter('.ak, .ep', '.sr-play', { y: 60 });
+    revealOnEnter('.s-sarathi .step', '.s-sarathi .room-steps', { y: 60, rotateX: -20, transformOrigin: '50% 0%' });
   }
 
   // What's next: the shortlist rolls in like credits
@@ -966,7 +1297,7 @@ export default function App() {
 
   // Preload the heavy images and fonts behind the gate's loading bar
   useEffect(() => {
-    const urls = [stories.image, ...billlion.shots.map((s) => s.src)];
+    const urls = [sarathi.image, vigil.poster, ...billlion.shots.map((s) => s.src)];
     const total = urls.length + 1;
     let done = 0;
     let alive = true;
@@ -1032,9 +1363,17 @@ export default function App() {
 
     const onVisibility = () => score.setHidden(document.hidden);
     document.addEventListener('visibilitychange', onVisibility);
+    const onGoto = (e) => {
+      const el = document.getElementById(e.detail);
+      if (!el) return;
+      if (lenisRef.current) lenisRef.current.scrollTo(el, { duration: 1.8 });
+      else el.scrollIntoView({ behavior: 'smooth' });
+    };
+    window.addEventListener('webume:goto', onGoto);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('webume:goto', onGoto);
       if (lenis) {
         gsap.ticker.remove(raf);
         lenis.destroy();
