@@ -171,6 +171,55 @@ function Nav({ scene, soundOn, onSound, progressRef }) {
   );
 }
 
+// Film chrome: a player-style timeline along the bottom, and a toast as each scene starts
+const RUNTIME = 210;
+const timecode = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+function Hud({ scene, ticks, fillRef, timeRef }) {
+  const idx = Math.max(0, scenes.findIndex((s) => s.id === scene));
+  return (
+    <nav className="hud" aria-label="Scenes">
+      <span className="hud-time">
+        <span ref={timeRef}>00:00</span> / {timecode(RUNTIME)}
+      </span>
+      <div className="hud-line">
+        <span className="hud-track" />
+        <span className="hud-fill" ref={fillRef} />
+        {ticks.map((t, i) => (
+          <button
+            key={scenes[i].id}
+            type="button"
+            className={`hud-tick${i <= idx ? ' is-past' : ''}`}
+            style={{ left: `${t * 100}%` }}
+            onClick={() => goto(scenes[i].id)}
+            aria-label={`Scene ${i + 1}: ${scenes[i].label}`}
+          >
+            <span aria-hidden="true">{scenes[i].label}</span>
+          </button>
+        ))}
+      </div>
+      <span className="hud-scene">
+        {String(idx + 1).padStart(2, '0')} · {scenes[idx].label}
+      </span>
+    </nav>
+  );
+}
+
+// Shows for each scene after the first; the key restarts its CSS animation
+function SceneToast({ scene }) {
+  const started = useRef(false);
+  if (scene !== 'intro') started.current = true;
+  if (!started.current || prefersReducedMotion()) return null;
+  const idx = scenes.findIndex((s) => s.id === scene);
+  return (
+    <div className="toast" key={scene} aria-hidden="true">
+      <i />
+      <span>Scene {String(idx + 1).padStart(2, '0')}</span>
+      <strong>{scenes[idx].label}</strong>
+    </div>
+  );
+}
+
 // --- Intro: a name you can grab ---
 
 function Hero() {
@@ -1011,16 +1060,35 @@ const titles = (scope) =>
     gsap.from(t.querySelectorAll('.mask-in'), { yPercent: 108, rotation: 3, duration: 1.1, stagger: 0.09, ease: 'dev', scrollTrigger: { trigger: t, start: 'top 85%' } });
   });
 
+// Desktop plays like a film: each scene's opening shot pins full-screen while the scroll plays it, then flies
+// past the camera on the way out. Pins are created top to bottom so each one measures the page below it correctly.
+const fitsStart = (sel) => () => (document.querySelector(sel).offsetHeight < window.innerHeight * 0.84 ? 'center center' : 'top 72px');
+const exitShot = (tl, sel, at) => tl.to(sel, { scale: 1.06, opacity: 0, duration: 0.5, ease: 'power2.in' }, at);
+
 const pinnedMotion = (desktop) => [
   () => {
-    // The hero leaves by scattering its letters upward at different speeds
-    gsap.to('.hl-mask', {
-      yPercent: (i) => -50 - ((i * 37) % 70),
-      rotation: (i) => (i % 2 ? 1 : -1) * (6 + ((i * 13) % 12)),
-      ease: 'none',
-      scrollTrigger: { trigger: '.sc-intro', start: 'top top', end: 'bottom top', scrub: true },
-    });
-    gsap.to('.hero-back span', { xPercent: -18, ease: 'none', scrollTrigger: { trigger: '.sc-intro', start: 'top top', end: 'bottom top', scrub: true } });
+    // Intro: the name scatters upward, the stickers drift off, the back word slides
+    if (desktop) {
+      const tl = gsap.timeline({ scrollTrigger: { trigger: '.sc-intro', start: 'top top', end: '+=80%', pin: true, scrub: 0.6 } });
+      tl.to('.hl-mask', { yPercent: (i) => -60 - ((i * 37) % 70), rotation: (i) => (i % 2 ? 1 : -1) * (6 + ((i * 13) % 12)), duration: 1, ease: 'devInOut' }, 0)
+        .to('.hero-back span', { xPercent: -22, duration: 1, ease: 'none' }, 0)
+        .to('.hero-foot, .hero-hi, .hero-hint', { y: -40, opacity: 0, duration: 0.5, ease: 'power2.in' }, 0.1)
+        .to('.sticker', { y: (i) => -140 - i * 30, rotation: (i) => (i % 2 ? 18 : -18), opacity: 0, duration: 0.8, ease: 'power2.in', stagger: 0.04 }, 0.05);
+    } else {
+      gsap.to('.hl-mask', {
+        yPercent: (i) => -50 - ((i * 37) % 70),
+        rotation: (i) => (i % 2 ? 1 : -1) * (6 + ((i * 13) % 12)),
+        ease: 'none',
+        scrollTrigger: { trigger: '.sc-intro', start: 'top top', end: 'bottom top', scrub: true },
+      });
+    }
+  },
+  () => {
+    // Report cards deal in from a stack and hold for scratching
+    if (!desktop) return;
+    const tl = gsap.timeline({ scrollTrigger: { trigger: '.sc-record', start: 'top top', end: '+=100%', pin: true, scrub: 0.6 } });
+    tl.from('.scratch', { y: 160, rotation: (i) => (i ? 9 : -9), opacity: 0, duration: 0.5, stagger: 0.12, ease: 'dev' }, 0).to({}, { duration: 0.6 });
+    exitShot(tl, '.rec-grid', 1.1);
   },
   () => {
     // Billlion: the three L's are stock bars that fill as the scene pins
@@ -1036,6 +1104,33 @@ const pinnedMotion = (desktop) => [
     } else {
       gsap.fromTo(bars, { scaleY: 0.32 }, { scaleY: (i) => [0.78, 1, 0.9][i], stagger: 0.12, duration: 1.2, ease: 'elastic.out(1, 0.6)', scrollTrigger: { trigger: '.bl-word', start: 'top 80%' } });
     }
+  },
+  () => {
+    // Vigil: Mayu drops in and fans her tail while the shot holds
+    if (!desktop) return;
+    const tl = gsap.timeline({ scrollTrigger: { trigger: '.vg-hero', start: fitsStart('.vg-hero'), end: '+=90%', pin: true, scrub: 0.6 } });
+    tl.from('.vg-mayu', { y: 180, scale: 0.4, duration: 0.6, ease: 'back.out(1.6)' }, 0)
+      .fromTo('.vg-mayu .pk-feather', { rotation: 0, svgOrigin: '60 76' }, { rotation: (i, f) => Number(f.dataset.a), svgOrigin: '60 76', duration: 0.5, stagger: 0.03, ease: 'back.out(2)' }, 0.3)
+      .from('.vg-platforms li', { y: 20, opacity: 0, duration: 0.3, stagger: 0.05 }, 0.4)
+      .to({}, { duration: 0.4 });
+    exitShot(tl, '.vg-hero', 1.2);
+  },
+  () => {
+    // Craft: the terminal swings in and the skill chips drop onto the board
+    if (!desktop) return;
+    const tl = gsap.timeline({ scrollTrigger: { trigger: '.sc-craft .wrap', start: fitsStart('.sc-craft .wrap'), end: '+=80%', pin: true, scrub: 0.6 } });
+    tl.from('.term', { rotationY: -18, y: 80, opacity: 0, duration: 0.5, ease: 'dev' }, 0)
+      .from('.board .chip', { y: -50, opacity: 0, duration: 0.4, stagger: 0.01, ease: 'back.out(2)' }, 0.2)
+      .to({}, { duration: 0.6 });
+  },
+  () => {
+    // Sarathi: the player pushes in from the side like a camera move
+    if (!desktop) return;
+    const tl = gsap.timeline({ scrollTrigger: { trigger: '.sr-top', start: fitsStart('.sr-top'), end: '+=90%', pin: true, scrub: 0.6 } });
+    tl.from('.sr-player', { x: 160, scale: 0.72, rotation: 4, duration: 0.7, ease: 'devInOut' }, 0)
+      .from('.sr-title .voice, .sr-title .lede', { x: -40, opacity: 0, duration: 0.4, stagger: 0.08 }, 0.2)
+      .to('.sr-player', { scale: 1.06, duration: 0.5, ease: 'none' }, 0.7);
+    exitShot(tl, '.sr-top', 1.25);
   },
   () => {
     // IIM: the route draws itself and the plane flies it as you scroll
@@ -1054,7 +1149,7 @@ const pinnedMotion = (desktop) => [
 const sceneMotion = (desktop) => ({
   record: (el) => {
     titles(el);
-    gsap.from('.scratch', { y: 80, rotation: (i) => (i ? 6 : -6), duration: 1, stagger: 0.12, ease: 'dev', scrollTrigger: { trigger: '.scratch-row', start: 'top 85%' } });
+    if (!desktop) gsap.from('.scratch', { y: 80, rotation: (i) => (i ? 6 : -6), duration: 1, stagger: 0.12, ease: 'dev', scrollTrigger: { trigger: '.scratch-row', start: 'top 85%' } });
   },
   billlion: () => {
     gsap.from('.sc-billlion .toy', { y: 70, duration: 1, stagger: 0.1, ease: 'dev', scrollTrigger: { trigger: '.bl-body', start: 'top 85%' } });
@@ -1062,22 +1157,25 @@ const sceneMotion = (desktop) => ({
   vigil: (el) => {
     titles(el);
     // Mayu lands and fans out; the promo tilts up off the floor
-    gsap
-      .timeline({ scrollTrigger: { trigger: '.vg-hero', start: 'top 70%' } })
-      .from('.vg-mayu', { y: 140, scale: 0.4, duration: 1, ease: 'elastic.out(1, 0.55)' })
-      .fromTo('.vg-mayu .pk-feather', { rotation: 0, svgOrigin: '60 76' }, { rotation: (i, f) => Number(f.dataset.a), svgOrigin: '60 76', duration: 0.9, stagger: 0.035, ease: 'back.out(2)' }, 0.25);
+    if (!desktop) {
+      gsap
+        .timeline({ scrollTrigger: { trigger: '.vg-hero', start: 'top 70%' } })
+        .from('.vg-mayu', { y: 140, scale: 0.4, duration: 1, ease: 'elastic.out(1, 0.55)' })
+        .fromTo('.vg-mayu .pk-feather', { rotation: 0, svgOrigin: '60 76' }, { rotation: (i, f) => Number(f.dataset.a), svgOrigin: '60 76', duration: 0.9, stagger: 0.035, ease: 'back.out(2)' }, 0.25);
+    }
     gsap.fromTo('.vg-promo', { rotationX: desktop ? 24 : 10, scale: 0.88 }, { rotationX: 0, scale: 1, ease: 'none', scrollTrigger: { trigger: '.vg-promo', start: 'top bottom', end: 'top 35%', scrub: true } });
     gsap.from('.vg-toys .toy', { y: 80, rotation: (i) => (i ? 3 : -3), duration: 1, stagger: 0.12, ease: 'dev', scrollTrigger: { trigger: '.vg-toys', start: 'top 85%' } });
     gsap.from('.vg-shot', { x: 120, duration: 1, stagger: 0.06, ease: 'dev', scrollTrigger: { trigger: '.vg-screens', start: 'top 90%' } });
   },
   craft: (el) => {
     titles(el);
-    gsap.from('.term', { rotationY: desktop ? -16 : 0, y: 60, duration: 1.1, ease: 'dev', scrollTrigger: { trigger: '.craft-grid', start: 'top 85%' } });
+    if (desktop) return;
+    gsap.from('.term', { y: 60, duration: 1.1, ease: 'dev', scrollTrigger: { trigger: '.craft-grid', start: 'top 85%' } });
     gsap.from('.board .chip', { y: -40, opacity: 0, duration: 0.7, stagger: 0.025, ease: 'back.out(2.4)', scrollTrigger: { trigger: '.board', start: 'top 80%' } });
   },
   sarathi: (el) => {
     titles(el);
-    gsap.fromTo('.sr-player', { y: 80, rotation: 2 }, { y: -30, rotation: 0, ease: 'none', scrollTrigger: { trigger: '.sr-top', start: 'top bottom', end: 'bottom top', scrub: true } });
+    if (!desktop) gsap.fromTo('.sr-player', { y: 80, rotation: 2 }, { y: -30, rotation: 0, ease: 'none', scrollTrigger: { trigger: '.sr-top', start: 'top bottom', end: 'bottom top', scrub: true } });
     gsap.from('.sr-deva', { yPercent: 60, opacity: 0, duration: 1.2, ease: 'dev', scrollTrigger: { trigger: '.sr-name', start: 'top 85%' } });
     gsap.from('.sr-toys .toy', { y: 80, duration: 1, stagger: 0.12, ease: 'dev', scrollTrigger: { trigger: '.sr-toys', start: 'top 85%' } });
   },
@@ -1104,6 +1202,9 @@ export default function App() {
   const [soundOn, setSoundOn] = useState(false);
   const [scene, setScene] = useState('intro');
   const [zoom, setZoom] = useState(null);
+  const [ticks, setTicks] = useState([]);
+  const fillRef = useRef(null);
+  const timeRef = useRef(null);
 
   if (!scoreRef.current) scoreRef.current = new AmbientScore();
 
@@ -1176,6 +1277,7 @@ export default function App() {
     const desktop = window.matchMedia('(min-width: 900px)').matches;
     let alive = true;
     let lazyIO = null;
+    const cleanups = [];
     const io = new IntersectionObserver((es) => es.forEach((e) => e.target.classList.toggle('is-off', !e.isIntersecting)));
     document.querySelectorAll('.marquee').forEach((m) => io.observe(m));
     (async () => {
@@ -1223,9 +1325,18 @@ export default function App() {
           end: 'max',
           onUpdate: (self) => {
             if (progressRef.current) progressRef.current.style.transform = `scaleX(${self.progress})`;
+            if (fillRef.current) fillRef.current.style.transform = `scaleX(${self.progress})`;
+            if (timeRef.current) timeRef.current.textContent = timecode(self.progress * RUNTIME);
           },
         });
       });
+      // Scene ticks sit where each scene starts on the timeline, recomputed whenever pins re-measure
+      const placeTicks = () => {
+        const max = ScrollTrigger.maxScroll(window) || 1;
+        setTicks(gsap.utils.toArray('[data-scene]').map((el) => Math.min(1, Math.max(0, (el.getBoundingClientRect().top + window.scrollY) / max))));
+      };
+      ScrollTrigger.addEventListener('refresh', placeTicks);
+      cleanups.push(() => ScrollTrigger.removeEventListener('refresh', placeTicks));
       ScrollTrigger.refresh();
     })();
     // Crossing the desktop breakpoint rebuilds the choreography for the new layout
@@ -1235,6 +1346,7 @@ export default function App() {
     return () => {
       alive = false;
       lazyIO?.disconnect();
+      cleanups.forEach((fn) => fn());
       mq.removeEventListener?.('change', onBreak);
       io.disconnect();
       ctx.revert();
@@ -1307,6 +1419,8 @@ export default function App() {
     <div ref={rootRef} className={`site${entered ? ' is-in' : ''}`}>
       <div className="light" aria-hidden="true" />
       <Nav scene={scene} soundOn={soundOn} onSound={toggleSound} progressRef={progressRef} />
+      <Hud scene={scene} ticks={ticks} fillRef={fillRef} timeRef={timeRef} />
+      {entered && <SceneToast scene={scene} />}
       <Page onZoom={setZoom} onReplay={replay} />
       {zoom && <Lightbox shot={zoom} onClose={() => setZoom(null)} />}
       {!entered && <Loader progress={loaded} onEnter={enter} />}
