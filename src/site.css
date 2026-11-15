@@ -2120,3 +2120,123 @@ em {
     animation: none;
   }
 }
+
+/* Work sphere (after MotionSites' Sphere Gallery, drawn with CSS 3D) */
+.work {
+  margin-bottom: clamp(80px, 12vh, 140px);
+}
+.sphere {
+  position: relative;
+  margin-top: 24px;
+}
+.sphere-stage {
+  position: relative;
+  height: min(76vh, 720px);
+  min-height: 460px;
+  perspective: 900px;
+  touch-action: pan-y;
+  user-select: none;
+  cursor: grab;
+}
+.sphere-stage.is-grabbing {
+  cursor: grabbing;
+}
+.sphere-world {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+.sphere-tile {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #1b1b1d;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.8);
+  pointer-events: auto;
+  will-change: transform, opacity;
+  transition: box-shadow 0.3s;
+}
+.sphere-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+.sphere-tile:hover,
+.sphere-tile.is-on {
+  box-shadow: 0 0 0 2px var(--light), 0 20px 50px -10px rgba(0, 0, 0, 0.9);
+}
+.sphere-caption {
+  height: 28px;
+  overflow: hidden;
+  text-align: center;
+}
+.sphere-caption p {
+  animation: roll-in 0.6s cubic-bezier(0.16, 0.84, 0.3, 1);
+}
+.sphere-caption b {
+  font-weight: 500;
+}
+.sphere-caption span {
+  margin-left: 6px;
+  color: var(--muted);
+  font-family: var(--serif);
+  font-style: italic;
+}
+.sphere-hint {
+  color: var(--faint);
+  font-size: 13px;
+}
+.sphere-overview {
+  position: absolute;
+  left: 50%;
+  bottom: 52px;
+  width: min(600px, calc(100% - 16px));
+  translate: -50% 0;
+  padding: 18px 20px;
+  border-radius: var(--r-md);
+  background: rgba(14, 14, 18, 0.94);
+  border: 1px solid var(--line);
+  text-align: left;
+  animation: rise 0.7s cubic-bezier(0.16, 0.84, 0.3, 1) 0.12s both;
+}
+.sphere-overview div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sphere-overview span {
+  color: var(--muted);
+  font-family: var(--serif);
+  font-style: italic;
+}
+.sphere-overview .pill {
+  min-height: 30px;
+  margin-left: auto;
+  padding: 0 14px;
+  font-size: 13px;
+}
+.sphere-overview p {
+  margin-top: 8px;
+  max-width: 54ch;
+  color: #cfcfcc;
+  font: 17px/1.35 var(--serif);
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+@media (max-width: 640px) {
+  .sphere-stage {
+    height: 70vh;
+    min-height: 380px;
+  }
+}

@@ -9,8 +9,9 @@ import { MotionPathPlugin } from 'gsap/MotionPathPlugin';
 import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin';
 import Lenis from 'lenis';
 import { AmbientScore } from './engine/ambient';
-import { billlion, credits, hero, next, profile, record, sarathi, scenes, skillTree, terminal, vigil } from './content';
+import { billlion, credits, hero, next, profile, record, sarathi, scenes, skillTree, terminal, vigil, work } from './content';
 import ThrowDeck from './components/ThrowDeck';
+import WorkSphere from './components/WorkSphere';
 import VigilScene from './scenes/Vigil';
 import SarathiScene from './scenes/Sarathi';
 import { Arrow, buzz, coarsePointer, confetti, idle, prefersReducedMotion, Title, yieldToMain } from './ui';
@@ -907,6 +908,11 @@ function Credits({ onReplay }) {
   return (
     <section className="scene sc-credits" id="credits" data-scene="credits">
       <div className="wrap">
+        <div className="work">
+          <p className="kicker">Everything so far</p>
+          <Title as="h2" className="h2" lines={['All the work,', 'in one place.']} />
+          <WorkSphere items={work} />
+        </div>
         {!said ? (
           <div className="ask">
             <Title as="h2" className="h2 ask-q" lines={['So, should we build', 'something together?']} />
