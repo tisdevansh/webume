@@ -1177,14 +1177,23 @@ function buildTimelines(desktop) {
   // Sarathi: the key art opens up into a full-screen frame with subtitles
   {
     headline('.s-sarathi');
-    const tl = gsap.timeline({ scrollTrigger: { trigger: '.st-pin', start: 'top top', end: '+=240%', pin: true, scrub: 1 } });
+    const tl = gsap.timeline({ scrollTrigger: { trigger: '.st-pin', start: 'top top', end: '+=240%', pin: true, scrub: 1, invalidateOnRefresh: true } });
     tl.fromTo(
       '.st-frame',
       { clipPath: desktop ? 'inset(46% 24% 10% 24% round 22px)' : 'inset(48% 4% 14% 4% round 16px)' },
-      { clipPath: `inset(9% ${Math.round(Math.max(window.innerWidth * 0.04, (window.innerWidth - 1040) / 2))}px 15% ${Math.round(Math.max(window.innerWidth * 0.04, (window.innerWidth - 1040) / 2))}px round 22px)`, duration: 1.4, ease: 'power2.inOut' },
+      {
+        // open exactly to the art's own box (sized near its native width in CSS), so it is never blown up
+        clipPath: () => {
+          const f = document.querySelector('.st-frame').getBoundingClientRect();
+          const r = document.querySelector('.st-frame img').getBoundingClientRect();
+          return `inset(${Math.round(r.top - f.top)}px ${Math.round(f.right - r.right)}px ${Math.round(f.bottom - r.bottom)}px ${Math.round(r.left - f.left)}px round 22px)`;
+        },
+        duration: 1.4,
+        ease: 'power2.inOut',
+      },
       0.4
     )
-      .fromTo('.st-frame img', { scale: 1.12 }, { scale: 1, duration: 2.8, ease: 'none' }, 0.4)
+      .fromTo('.st-frame img', { yPercent: 3 }, { yPercent: 0, duration: 2.8, ease: 'none' }, 0.4)
       .to('.st-intro', { autoAlpha: 0, y: -80, scale: 0.95, duration: 0.8 }, 0.8)
       .fromTo('.st-bars i', { scaleY: 0 }, { scaleY: 1, duration: 0.6 }, 1.4)
       .from('.st-tag', { autoAlpha: 0, y: 20, duration: 0.4 }, 1.8);

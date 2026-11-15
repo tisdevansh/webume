@@ -1303,13 +1303,57 @@
   border-radius: 2px;
 }
 
-/* Sarathi key art stays near its native size, so it is never blown up soft */
+/* Sarathi key art is drawn in a box matching its own proportions, no wider than about its native 1024px,
+   so it is shown at roughly 1:1 on laptops and downscaled on phones instead of blown up to fill the screen */
+.s-sarathi {
+  --fw: min(92vw, 1040px, calc(74vh * 1.79));
+  --fh: calc(var(--fw) / 1.79);
+}
+.s-sarathi .st-frame img {
+  position: absolute;
+  left: calc(50% - var(--fw) / 2);
+  top: calc(50% - var(--fh) / 2);
+  width: var(--fw);
+  height: var(--fh);
+  object-fit: cover;
+}
+.s-sarathi .st-frame::after {
+  display: none;
+}
 .s-sarathi .st-tag {
-  top: calc(9% + 22px);
-  left: max(calc(4% + 22px), calc(50% - 498px));
+  top: calc(50% - var(--fh) / 2 + 20px);
+  left: calc(50% - var(--fw) / 2 + 22px);
 }
 .s-sarathi .st-captions {
-  bottom: calc(15% + 24px);
+  bottom: calc(50% - var(--fh) / 2 + 20px);
+  width: calc(var(--fw) - 40px);
+}
+.s-sarathi .st-cap {
+  justify-self: center;
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: rgba(6, 6, 8, 0.62);
+}
+.s-sarathi .st-tag {
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(6, 6, 8, 0.55);
+}
+@media (max-width: 899px) {
+  .s-sarathi .st-tag {
+    top: calc(50% - var(--fh) / 2 - 78px);
+    left: calc(50% - var(--fw) / 2);
+    background: none;
+    padding: 0;
+  }
+  .s-sarathi .st-captions {
+    top: calc(50% + var(--fh) / 2 + 14px);
+    bottom: auto;
+    width: var(--fw);
+  }
+  .s-sarathi .st-cap {
+    font-size: 17px;
+  }
 }
 
 .counter-wrap {
