@@ -158,7 +158,7 @@ export const vigil = {
         ['session', 'Focus session', 'session'],
         ['shield', 'Rules and blocks', 'rules'],
         ['practice', 'Practice', 'practice'],
-        ['ended', 'Session ended', 'ended'],
+        ['ended', 'Check-in mode', 'check-ins'],
       ].map(([f, title, short]) => ({ title, short, src: vigilImg(`desk-${f}`) })),
     ],
   },
