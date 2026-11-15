@@ -9,16 +9,32 @@ export const profile = {
   linktree: 'https://linktr.ee/tisdevansh',
 };
 
-// Order matches the <section className="scene"> order and the particle shapes.
+export const hero = {
+  hi: "hi, I'm",
+  sub: "I build software people actually use, I write stories worth animating, and I'm headed for IIM Indore.",
+  stickers: [
+    { text: 'ICSE 95.4%', tone: 'lime', x: 6, y: 17, r: -8 },
+    { text: 'IPMAT 2027 ✈', tone: 'amber', x: 76, y: 13, r: 7 },
+    { text: 'built Billlion', tone: 'paper', x: 84, y: 78, r: -5 },
+    { text: 'Mayu is watching', tone: 'blue', x: 34, y: 86, r: 6 },
+    { text: 'Gita, Gen Z edition', tone: 'saffron', x: 58, y: 88, r: -4 },
+  ],
+  marquee: [
+    ['Billlion', 'Vigil', 'Sarathi', 'IIM 2027', 'Billlion', 'Vigil', 'Sarathi', 'IIM 2027'],
+    ['builder', 'storyteller', 'debater', 'anchor', 'outreach lead', 'IPMAT aspirant', 'poet', 'startup nerd'],
+  ],
+};
+
+// Sections in page order; the score changes chord with each one
 export const scenes = [
-  { id: 'intro', label: 'Introduction', accent: '#f3eee6' },
-  { id: 'record', label: 'The record', accent: '#ffb454' },
-  { id: 'billlion', label: 'Billlion', accent: '#7cf2c4' },
-  { id: 'vigil', label: 'Vigil', accent: '#f2a541' },
-  { id: 'craft', label: 'The craft', accent: '#8ab4ff' },
-  { id: 'sarathi', label: 'Sarathi', accent: '#ffb86b' },
-  { id: 'next', label: 'IPMAT 2027', accent: '#ffd27a' },
-  { id: 'credits', label: 'Credits', accent: '#c9b8ff' },
+  { id: 'intro', label: 'Hello' },
+  { id: 'record', label: 'Report cards' },
+  { id: 'billlion', label: 'Billlion' },
+  { id: 'vigil', label: 'Vigil' },
+  { id: 'craft', label: 'Craft' },
+  { id: 'sarathi', label: 'Sarathi' },
+  { id: 'next', label: 'IIM 2027' },
+  { id: 'credits', label: 'Say hi' },
 ];
 
 export const record = [
@@ -101,7 +117,6 @@ export const vigil = {
     'Mayu the peacock sits next to you. She blocks reels and distracting apps, checks with the camera that you are really at the desk, plans your whole prep from the official syllabus, and tells your parents when you skip.',
   video: `${process.env.PUBLIC_URL}/media/vigil-promo.mp4`,
   poster: `${process.env.PUBLIC_URL}/media/vigil-promo-poster.jpg`,
-  sounds: { block: `${process.env.PUBLIC_URL}/sounds/vigil-block.mp3`, reels: `${process.env.PUBLIC_URL}/sounds/vigil-reels.mp3` },
   platforms: ['Android', 'Windows', 'Linked together', 'Free'],
   // Mayu's real lines from the app
   blockLines: [
@@ -226,6 +241,6 @@ export const credits = [
   ['Obsessed with', 'Startups · AI'],
   ['Soundtrack', 'Music, always'],
   ['Score', 'Generated live in your browser'],
-  ['Built with', 'React · GSAP · Three.js · Lenis'],
+  ['Built with', 'React · GSAP · Lenis'],
   ['Next scene', 'IIM, 2027'],
 ];

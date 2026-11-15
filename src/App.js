@@ -1,65 +1,631 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { SplitText } from 'gsap/SplitText';
+import { Draggable } from 'gsap/Draggable';
+import { InertiaPlugin } from 'gsap/InertiaPlugin';
+import { CustomEase } from 'gsap/CustomEase';
+import { Flip } from 'gsap/Flip';
+import { MotionPathPlugin } from 'gsap/MotionPathPlugin';
+import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin';
 import Lenis from 'lenis';
 import { AmbientScore } from './engine/ambient';
-import { GATE_SHAPE, ParticleStage } from './engine/particles';
-import { billlion, credits, next, profile, record, sarathi, scenes, skillTree, terminal, vigil } from './content';
+import { billlion, credits, hero, next, profile, record, sarathi, scenes, skillTree, terminal, vigil } from './content';
+import ThrowDeck from './components/ThrowDeck';
 import VigilScene from './scenes/Vigil';
 import SarathiScene from './scenes/Sarathi';
-import { Arrow, BgWord, Eyebrow, Line, pad, prefersReducedMotion, spotlight } from './ui';
+import { Arrow, buzz, coarsePointer, confetti, idle, prefersReducedMotion, Title, yieldToMain } from './ui';
 import './site.css';
-import './scenes.css';
 
-gsap.registerPlugin(ScrollTrigger, SplitText);
+gsap.registerPlugin(ScrollTrigger, Draggable, InertiaPlugin, CustomEase, Flip, MotionPathPlugin, DrawSVGPlugin);
+// House easings: a fast, soft landing and a weighted in-out for pinned moves
+CustomEase.create('dev', 'M0,0 C0.16,0.84 0.3,1 1,1');
+CustomEase.create('devInOut', 'M0,0 C0.72,0 0.18,1 1,1');
 
-// Length shown on the timeline. Purely for the "watching a film" feel.
-const RUNTIME = 210;
+// The light each scene is lit by
+const LIGHT = { intro: '#9db4ff', record: '#ffb454', billlion: '#3ddc97', vigil: '#f2a541', craft: '#8ab4ff', sarathi: '#ff9a3c', next: '#8c7cff', credits: '#ede8df' };
 
-const formatTime = (s) => `${pad(Math.floor(s / 60))}:${pad(Math.floor(s % 60))}`;
+const inr = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+const goto = (id) => window.dispatchEvent(new CustomEvent('webume:goto', { detail: id }));
 
-// Position of el's box inside ancestor, ignoring transforms (so mid-animation offsets don't skew it)
-function offsetWithin(el, ancestor) {
-  let x = 0;
-  let y = 0;
-  let node = el;
-  while (node && node !== ancestor) {
-    x += node.offsetLeft;
-    y += node.offsetTop;
-    node = node.offsetParent;
-  }
-  return { x, y, w: el.offsetWidth, h: el.offsetHeight };
+// --- Chrome ---
+
+function Loader({ progress, onEnter }) {
+  const ready = progress >= 1;
+  return (
+    <div className="ld" role="dialog" aria-modal="true" aria-labelledby="ld-title">
+      <div className="ld-mark">DA</div>
+      <p className="ld-title" id="ld-title">
+        Devansh Agarwal
+      </p>
+      <div className="ld-meter" aria-live="polite">
+        <span className="ld-count">{Math.round(progress * 100)}</span>
+        <span className="ld-bar">
+          <i style={{ transform: `scaleX(${progress})` }} />
+        </span>
+      </div>
+      <div className={`ld-actions${ready ? ' is-ready' : ''}`}>
+        <button type="button" className="pill pill-solid ld-enter" disabled={!ready} onClick={() => onEnter(true)} data-magnetic>
+          Enter with sound
+        </button>
+        <button type="button" className="pill ld-quiet" disabled={!ready} onClick={() => onEnter(false)}>
+          Enter quietly
+        </button>
+      </div>
+      <p className="ld-note">The sound is a quiet ambient score, made live in your browser.</p>
+    </div>
+  );
 }
 
-// A real terminal: the scripted lines type themselves out, then it takes commands
+// Dot + ring cursor that says what a thing does (drag, throw, scratch), and magnetic buttons
+function Cursor() {
+  const ringRef = useRef(null);
+  const dotRef = useRef(null);
+  const [label, setLabel] = useState('');
+  useEffect(() => {
+    if (coarsePointer() || prefersReducedMotion()) return undefined;
+    const root = document.documentElement;
+    root.classList.add('has-cursor');
+    const rx = gsap.quickTo(ringRef.current, 'x', { duration: 0.4, ease: 'power3' });
+    const ry = gsap.quickTo(ringRef.current, 'y', { duration: 0.4, ease: 'power3' });
+    const dx = gsap.quickTo(dotRef.current, 'x', { duration: 0.06 });
+    const dy = gsap.quickTo(dotRef.current, 'y', { duration: 0.06 });
+    let magnet = null;
+    let last = '';
+    const release = () => {
+      if (magnet) gsap.to(magnet, { x: 0, y: 0, duration: 0.8, ease: 'elastic.out(1, 0.4)' });
+      magnet = null;
+    };
+    const onMove = (e) => {
+      rx(e.clientX);
+      ry(e.clientY);
+      dx(e.clientX);
+      dy(e.clientY);
+      const t = e.target && e.target.closest ? e.target : null;
+      const hint = t && t.closest('[data-cursor]');
+      const nextLabel = hint ? hint.dataset.cursor : '';
+      if (nextLabel !== last) {
+        last = nextLabel;
+        setLabel(nextLabel);
+      }
+      ringRef.current.classList.toggle('is-link', !!(t && t.closest('a, button')) && !hint);
+      const m = t && t.closest('[data-magnetic]');
+      if (m !== magnet) release();
+      if (m) {
+        magnet = m;
+        const r = m.getBoundingClientRect();
+        gsap.to(m, { x: (e.clientX - r.left - r.width / 2) * 0.28, y: (e.clientY - r.top - r.height / 2) * 0.38, duration: 0.4, ease: 'power3.out' });
+      }
+    };
+    const down = () => ringRef.current.classList.add('is-down');
+    const up = () => ringRef.current.classList.remove('is-down');
+    window.addEventListener('pointermove', onMove, { passive: true });
+    window.addEventListener('pointerdown', down);
+    window.addEventListener('pointerup', up);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerdown', down);
+      window.removeEventListener('pointerup', up);
+      root.classList.remove('has-cursor');
+    };
+  }, []);
+  return (
+    <>
+      <div className={`cur-ring${label ? ' has-label' : ''}`} ref={ringRef} aria-hidden="true">
+        <span>{label}</span>
+      </div>
+      <div className="cur-dot" ref={dotRef} aria-hidden="true" />
+    </>
+  );
+}
+
+function Nav({ scene, soundOn, onSound, progressRef }) {
+  const label = scenes.find((s) => s.id === scene)?.label || '';
+  return (
+    <header className="nav">
+      <button type="button" className="nav-mark" onClick={() => goto('intro')} aria-label="Back to the top">
+        DA
+      </button>
+      <span className="nav-scene" key={scene} aria-hidden="true">
+        {label}
+      </span>
+      <nav className="nav-links" aria-label="Sections">
+        {['billlion', 'vigil', 'sarathi', 'next'].map((id) => (
+          <button type="button" key={id} className={scene === id ? 'is-on' : ''} onClick={() => goto(id)}>
+            {scenes.find((s) => s.id === id).label}
+          </button>
+        ))}
+      </nav>
+      <button type="button" className={`nav-sound${soundOn ? ' is-on' : ''}`} onClick={onSound} aria-pressed={soundOn} aria-label={soundOn ? 'Mute the score' : 'Play the score'}>
+        <i />
+        <i />
+        <i />
+        <i />
+      </button>
+      <button type="button" className="pill pill-solid nav-hi" onClick={() => goto('credits')} data-magnetic>
+        Say hi
+      </button>
+      <span className="nav-progress" ref={progressRef} aria-hidden="true" />
+    </header>
+  );
+}
+
+// --- Intro: a name you can grab ---
+
+function Hero() {
+  const ref = useRef(null);
+  useEffect(() => idle(() => setup(ref.current)), []);
+  const setupRef = useRef(null);
+  function setup(root) {
+    if (!root || setupRef.current) return;
+    const draggers = [];
+    // Letters stretch away on a rubber band and spring home
+    if (!coarsePointer()) {
+      draggers.push(
+        ...Draggable.create(root.querySelectorAll('.hl'), {
+          type: 'x,y',
+          onPress() {
+            gsap.killTweensOf(this.target);
+            gsap.to(this.target, { scale: 1.08, duration: 0.2 });
+          },
+          onDrag() {
+            gsap.set(this.target, { rotation: this.x / 10 });
+          },
+          onRelease() {
+            gsap.to(this.target, { x: 0, y: 0, rotation: 0, scale: 1, duration: 1.4, ease: 'elastic.out(1, 0.32)' });
+          },
+        })
+      );
+    }
+    // Stickers stay wherever they are dropped
+    draggers.push(
+      ...Draggable.create(root.querySelectorAll('.sticker'), {
+        type: 'x,y',
+        bounds: root,
+        inertia: true,
+        onPress() {
+          gsap.to(this.target, { scale: 1.12, duration: 0.25, ease: 'back.out(3)' });
+          this.target.style.zIndex = 30;
+          buzz(10);
+        },
+        onRelease() {
+          gsap.to(this.target, { scale: 1, duration: 0.5, ease: 'elastic.out(1, 0.5)' });
+        },
+      })
+    );
+    // Depth: three layers follow the pointer at different distances
+    let off = () => {};
+    if (!prefersReducedMotion() && !coarsePointer()) {
+      const layers = [...root.querySelectorAll('[data-depth]')].map((el) => [
+        gsap.quickTo(el, 'xPercent', { duration: 1.2, ease: 'power3' }),
+        gsap.quickTo(el, 'yPercent', { duration: 1.2, ease: 'power3' }),
+        Number(el.dataset.depth),
+      ]);
+      const onMove = (e) => {
+        const x = e.clientX / window.innerWidth - 0.5;
+        const y = e.clientY / window.innerHeight - 0.5;
+        layers.forEach(([qx, qy, d]) => {
+          qx(x * d);
+          qy(y * d);
+        });
+      };
+      window.addEventListener('pointermove', onMove, { passive: true });
+      off = () => window.removeEventListener('pointermove', onMove);
+    }
+    setupRef.current = () => {
+      off();
+      draggers.forEach((d) => d.kill());
+    };
+  }
+  useEffect(() => () => setupRef.current && setupRef.current(), []);
+
+  return (
+    <section className="scene sc-intro" id="intro" data-scene="intro" ref={ref}>
+      <div className="hero-back" data-depth="-3" aria-hidden="true">
+        <span>{profile.last}</span>
+      </div>
+      <div className="hero-mid" data-depth="1.5">
+        <p className="hero-hi voice">{hero.hi}</p>
+        <h1 className="hero-name" aria-label={`${profile.first} ${profile.last}`} data-cursor={coarsePointer() ? undefined : 'grab'}>
+          {profile.first
+            .toUpperCase()
+            .split('')
+            .map((l, i) => (
+              <span className="hl-mask" key={i} aria-hidden="true">
+                <span className="hl">{l}</span>
+              </span>
+            ))}
+        </h1>
+        <div className="hero-foot">
+          <p className="hero-sub">{hero.sub}</p>
+          <button type="button" className="pill pill-solid" onClick={() => goto('billlion')} data-magnetic>
+            See what I've built
+          </button>
+        </div>
+      </div>
+      <div className="hero-front" data-depth="4">
+        {hero.stickers.map((s) => (
+          <span key={s.text} className={`sticker tone-${s.tone}`} style={{ left: `${s.x}%`, top: `${s.y}%`, '--r': `${s.r}deg` }} data-cursor="drag">
+            {s.text}
+          </span>
+        ))}
+      </div>
+      <p className="hero-hint">{coarsePointer() ? 'The stickers move. Try one.' : 'Grab a letter. The stickers move too.'}</p>
+    </section>
+  );
+}
+
+function Marquee() {
+  return (
+    <div className="marquee" aria-hidden="true">
+      {hero.marquee.map((row, i) => (
+        <div className={`mq mq-${i}`} key={i}>
+          <div className="mq-track">
+            {row.concat(row).map((w, j) => (
+              <span key={j}>{w}</span>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// --- Record: scratch cards ---
+
+function ScratchCard({ r }) {
+  const canvasRef = useRef(null);
+  const cardRef = useRef(null);
+  const valueRef = useRef(null);
+  const doneRef = useRef(false);
+  const [done, setDone] = useState(false);
+
+  const reveal = useCallback(() => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    setDone(true);
+    buzz([20, 40, 60]);
+    gsap.to(canvasRef.current, { autoAlpha: 0, duration: 0.5 });
+    const n = { v: 0 };
+    gsap.to(n, { v: r.value, duration: 1.4, ease: 'dev', onUpdate: () => valueRef.current && (valueRef.current.textContent = n.v.toFixed(1)) });
+    const b = cardRef.current.getBoundingClientRect();
+    confetti(b.left + b.width / 2, b.top + b.height / 2, 40);
+  }, [r.value]);
+
+  useEffect(() => {
+    let cleanup = () => {};
+    const cancel = idle(() => {
+    const canvas = canvasRef.current;
+    const card = cardRef.current;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const { width, height } = card.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const g = ctx.createLinearGradient(0, 0, width, height);
+    g.addColorStop(0, '#2b2a30');
+    g.addColorStop(0.5, '#4a4852');
+    g.addColorStop(1, '#2b2a30');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    for (let x = -height; x < width; x += 14) {
+      ctx.beginPath();
+      ctx.moveTo(x, height);
+      ctx.lineTo(x + height, 0);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(237,232,223,0.8)';
+    ctx.font = '600 15px Geist, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(coarsePointer() ? 'Scratch with your finger' : 'Scratch here', width / 2, height / 2 + 5);
+
+    let moves = 0;
+    let lastPt = null;
+    const scratch = (e) => {
+      const b = canvas.getBoundingClientRect();
+      const x = e.clientX - b.left;
+      const y = e.clientY - b.top;
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.lineWidth = 46;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(lastPt ? lastPt[0] : x, lastPt ? lastPt[1] : y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      lastPt = [x, y];
+      moves += 1;
+      if (moves % 8) return;
+      // Sample a sparse grid of pixels to see how much is cleared
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let clear = 0;
+      let total = 0;
+      for (let i = 3; i < data.length; i += 4 * 97) {
+        total += 1;
+        if (data[i] === 0) clear += 1;
+      }
+      if (clear / total > 0.35) reveal();
+    };
+    const down = (e) => {
+      lastPt = null;
+      scratch(e);
+      canvas.addEventListener('pointermove', scratch);
+    };
+    const up = () => canvas.removeEventListener('pointermove', scratch);
+    canvas.addEventListener('pointerdown', down);
+    window.addEventListener('pointerup', up);
+    cleanup = () => {
+      canvas.removeEventListener('pointerdown', down);
+      canvas.removeEventListener('pointermove', scratch);
+      window.removeEventListener('pointerup', up);
+    };
+    });
+    return () => {
+      cancel();
+      cleanup();
+    };
+  }, [reveal]);
+
+  return (
+    <article className={`scratch${done ? ' is-done' : ''}`} ref={cardRef}>
+      <div className="scratch-under">
+        <span className="scratch-grade">{r.grade}</span>
+        <span className="scratch-value">
+          <b ref={valueRef}>{r.value.toFixed(1)}</b>%
+        </span>
+        <span className="scratch-meta">
+          {r.track}, {r.school}
+        </span>
+      </div>
+      <canvas ref={canvasRef} className="scratch-cover" data-cursor="scratch" aria-hidden="true" />
+      {!done && (
+        <button type="button" className="sr-only" onClick={reveal}>
+          Reveal the {r.grade} result
+        </button>
+      )}
+    </article>
+  );
+}
+
+function Record() {
+  return (
+    <section className="scene sc-record" id="record" data-scene="record">
+      <div className="wrap rec-grid">
+        <div>
+          <p className="kicker">School, so far</p>
+          <Title as="h2" className="h2" lines={['Two report cards.', 'Scratch them.']} />
+          <p className="lede">Board results from Class X and Class XII. They held up.</p>
+        </div>
+        <div className="scratch-row">
+          {record.map((r) => (
+            <ScratchCard r={r} key={r.grade} />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// --- Billlion: bars that grow, a counter that bills, and the real screens ---
+
+const STOCK = [
+  { name: 'Cotton kurta', price: 899, gst: 5 },
+  { name: 'Denim jeans', price: 1499, gst: 5 },
+  { name: 'Linen shirt', price: 1199, gst: 5 },
+  { name: 'Wedding sherwani', price: 8999, gst: 18 },
+];
+
+function Counter() {
+  const [qty, setQty] = useState({});
+  const [billNo, setBillNo] = useState(41);
+  const totalRef = useRef(null);
+  const shown = useRef(0);
+  const lines = STOCK.map((s, i) => ({ ...s, q: qty[i] || 0 })).filter((l) => l.q);
+  const sub = lines.reduce((a, l) => a + l.price * l.q, 0);
+  const tax = lines.reduce((a, l) => a + (l.price * l.q * l.gst) / 100, 0);
+  const total = sub + tax;
+
+  useEffect(() => {
+    const n = { v: shown.current };
+    const t = gsap.to(n, { v: total, duration: 0.6, ease: 'dev', onUpdate: () => totalRef.current && (totalRef.current.textContent = inr(n.v)) });
+    shown.current = total;
+    return () => t.kill();
+  }, [total]);
+
+  const add = (i, e) => {
+    setQty((q) => ({ ...q, [i]: (q[i] || 0) + 1 }));
+    buzz(8);
+    gsap.fromTo(e.currentTarget, { scale: 0.93 }, { scale: 1, duration: 0.5, ease: 'elastic.out(1, 0.4)' });
+  };
+  const fresh = () => {
+    setQty({});
+    setBillNo((b) => b + 1);
+  };
+
+  return (
+    <div className="toy toy-counter">
+      <div className="toy-copy">
+        <h4>Ring up a bill.</h4>
+        <p>The counter screen, simplified. Tap products and the GST is worked out for every line.</p>
+      </div>
+      <div className="ct">
+        <div className="ct-items">
+          {STOCK.map((s, i) => (
+            <button type="button" key={s.name} className="ct-item" onClick={(e) => add(i, e)} data-cursor="add">
+              <b>{s.name}</b>
+              <span>
+                {inr(s.price)}, GST {s.gst}%
+              </span>
+              {qty[i] ? <i className="ct-q">{qty[i]}</i> : null}
+            </button>
+          ))}
+        </div>
+        <div className="ct-bill" aria-live="polite">
+          <div className="ct-head">
+            <b>Bill {String(billNo).padStart(4, '0')}</b>
+            <button type="button" onClick={fresh}>
+              New bill
+            </button>
+          </div>
+          {lines.length ? (
+            <ul>
+              {lines.map((l) => (
+                <li key={l.name}>
+                  <span>
+                    {l.q} × {l.name}
+                  </span>
+                  <span>{inr(l.price * l.q)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="ct-empty">Tap a product to add it.</p>
+          )}
+          <div className="ct-sum">
+            <span>Subtotal</span>
+            <span>{inr(sub)}</span>
+            <span>GST</span>
+            <span>{inr(tax)}</span>
+          </div>
+          <div className="ct-total">
+            <span>Total</span>
+            <b ref={totalRef}>₹0</b>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Billlion({ onZoom }) {
+  const [top, setTop] = useState(billlion.shots[0]);
+  return (
+    <section className="scene sc-billlion" id="billlion" data-scene="billlion">
+      <div className="bl-pin">
+        <div className="wrap bl-intro">
+          <p className="kicker">My first product</p>
+          <h2 className="bl-word" aria-label="Billlion">
+            <span className="bl-bi">Bi</span>
+            <span className="bl-bars" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+            <span className="bl-ion">ion</span>
+          </h2>
+          <p className="bl-pitch">{billlion.pitch}</p>
+        </div>
+      </div>
+      <div className="wrap bl-body">
+        <Counter />
+        <div className="toy toy-shots">
+          <div className="toy-copy">
+            <h4 key={top.title} className="swap">
+              {top.title}
+            </h4>
+            <p key={top.body} className="swap">
+              {top.body}
+            </p>
+          </div>
+          <ThrowDeck
+            className="shot-deck"
+            items={billlion.shots}
+            onTop={(s) => setTop(s)}
+            onOpen={(s) => onZoom(s)}
+            hint="throw it, or tap to zoom"
+            render={(s) => <img src={s.src} alt={`Billlion: ${s.title}`} width="2000" height="1250" loading="lazy" draggable="false" data-cursor="throw" />}
+          />
+          <p className="fine">
+            {billlion.role}. {billlion.demoNote}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Lightbox({ shot, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div className="lightbox" role="dialog" aria-modal="true" aria-label={shot.title} onClick={onClose}>
+      <img src={shot.src} alt={`Billlion: ${shot.title}`} />
+      <p>{shot.title}. Tap anywhere to close.</p>
+    </div>
+  );
+}
+
+// --- Craft: a working terminal and a skill board ---
+
 const COMMANDS = {
-  help: () => ['commands: whoami · ls · cat stack.txt · open <billlion|vigil|sarathi|iim> · updesh · ipmat · date · sudo hire devansh · clear'],
+  help: () => ['try: whoami, ls, cat stack.txt, open vigil, open billlion, open sarathi, open iim, updesh, sudo hire devansh, clear'],
   whoami: () => ['devansh agarwal: builds software, writes stories'],
   ls: () => ['billlion/   vigil/   sarathi/   webume/'],
-  'cat stack.txt': () => ['Python · Java · C/C++ · JavaScript · Firebase · MongoDB'],
-  updesh: () => ['कर्मण्येवाधिकारस्ते मा फलेषु कदाचन', 'do the work. drop the worry about results. (Gita 2.47)'],
-  gita: () => COMMANDS.updesh(),
-  ipmat: () => ['IIM Indore ▸ loading… ▓▓▓▓▓▓▓░░░ 2027'],
-  date: () => [new Date().toDateString()],
-  vigil: () => ['Mayu is watching 👀  try: open vigil'],
-  'sudo hire devansh': () => ['[sudo] permission granted ✓', `mail: ${profile.email}`],
-  'sudo rm -rf /': () => ['nice try. Mayu blocked that 🦚'],
-  exit: () => ['there is no exit. only the next scene.'],
+  'cat stack.txt': () => ['Python, Java, C/C++, JavaScript, Firebase, MongoDB'],
+  updesh: () => ['कर्मण्येवाधिकारस्ते मा फलेषु कदाचन', 'do the work. let go of the worry about results. (Gita 2.47)'],
+  'sudo hire devansh': () => ['[sudo] permission granted', `write to ${profile.email}`],
+  'sudo rm -rf /': () => ['blocked. Mayu is watching.'],
+  exit: () => ['there is no exit, only the next scene.'],
 };
-const TARGETS = { billlion: 'billlion', vigil: 'vigil', sarathi: 'sarathi', gita: 'sarathi', iim: 'next', ipmat: 'next', contact: 'credits' };
+const TARGETS = { billlion: 'billlion', vigil: 'vigil', sarathi: 'sarathi', iim: 'next', ipmat: 'next', contact: 'credits' };
 
 function Terminal() {
+  const [shown, setShown] = useState(0);
+  const [typing, setTyping] = useState('');
   const [log, setLog] = useState([]);
   const [value, setValue] = useState('');
   const history = useRef([]);
   const cursor = useRef(0);
   const inputRef = useRef(null);
   const bodyRef = useRef(null);
+  const rootRef = useRef(null);
+
+  // The scripted session types itself out the first time it scrolls into view
+  useEffect(() => {
+    if (prefersReducedMotion()) {
+      setShown(terminal.length);
+      return undefined;
+    }
+    const timers = [];
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (!e.isIntersecting) return;
+        io.disconnect();
+        let line = 0;
+        const typeLine = () => {
+          if (line >= terminal.length) return;
+          const { text, kind } = terminal[line];
+          let n = 0;
+          const step = () => {
+            n += 1;
+            setTyping(text.slice(0, n));
+            if (n < text.length) timers.push(setTimeout(step, kind === 'cmd' ? 45 : 8));
+            else {
+              line += 1;
+              setShown(line);
+              setTyping('');
+              timers.push(setTimeout(typeLine, 260));
+            }
+          };
+          step();
+        };
+        typeLine();
+      },
+      { threshold: 0.5 }
+    );
+    io.observe(rootRef.current);
+    return () => {
+      io.disconnect();
+      timers.forEach(clearTimeout);
+    };
+  }, []);
 
   useEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
-  }, [log]);
+  }, [log, shown]);
 
   const run = (raw) => {
     const cmd = raw.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -73,14 +639,11 @@ function Terminal() {
     let out;
     if (cmd.startsWith('open ')) {
       const id = TARGETS[cmd.slice(5)];
-      out = id ? [`opening ${cmd.slice(5)}…`] : [`open: no such scene. try billlion, vigil, sarathi or iim`];
-      if (id) setTimeout(() => window.dispatchEvent(new CustomEvent('webume:goto', { detail: id })), 400);
-    } else {
-      out = COMMANDS[cmd] ? COMMANDS[cmd]() : [`command not found: ${cmd}. try 'help'`];
-    }
+      out = id ? [`opening ${cmd.slice(5)}…`] : ['open what? try billlion, vigil, sarathi or iim'];
+      if (id) setTimeout(() => goto(id), 450);
+    } else out = COMMANDS[cmd] ? COMMANDS[cmd]() : [`command not found: ${cmd}. type help`];
     setLog((l) => l.concat({ kind: 'cmd', text: cmd }, out.map((text) => ({ kind: 'out', text }))).slice(-40));
   };
-
   const onKey = (e) => {
     if (e.key === 'Enter') {
       run(value);
@@ -92,111 +655,164 @@ function Terminal() {
       setValue(h[cursor.current] || '');
     }
   };
-
+  const live = terminal[shown];
   return (
-    <div className="terminal" onClick={() => inputRef.current?.focus({ preventScroll: true })}>
+    <div className="term" ref={rootRef} onClick={() => inputRef.current?.focus({ preventScroll: true })} data-cursor="type">
       <div className="term-bar">
         <i />
         <i />
         <i />
-        <span>~/devansh</span>
+        <span>devansh@webume</span>
       </div>
       <div className="term-body" ref={bodyRef} data-lenis-prevent>
-        {terminal.map((l, i) => (
-          <p key={i} className={`term-line ${l.kind}`} data-text={l.text}>
+        {terminal.slice(0, shown).map((l, i) => (
+          <p key={i} className={`term-l ${l.kind}`}>
             {l.text}
           </p>
         ))}
+        {live && typing && <p className={`term-l ${live.kind}`}>{typing}</p>}
         {log.map((l, i) => (
-          <p key={`l${i}`} className={`term-log ${l.kind}`}>
+          <p key={`l${i}`} className={`term-l ${l.kind}`}>
             {l.text}
           </p>
         ))}
-        <label className="term-input">
-          <span className="sr-only">Type a command</span>
-          <input
-            ref={inputRef}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={onKey}
-            placeholder="type 'help'"
-            spellCheck="false"
-            autoComplete="off"
-            autoCapitalize="off"
-          />
-        </label>
+        {shown >= terminal.length && (
+          <label className="term-in">
+            <span className="sr-only">Type a command</span>
+            <input ref={inputRef} value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={onKey} placeholder="type help" spellCheck="false" autoComplete="off" autoCapitalize="off" />
+          </label>
+        )}
       </div>
     </div>
   );
 }
 
-// Prints a boarding pass to IIM out of a slot
+function SkillBoard() {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (coarsePointer()) return undefined;
+    let ds = [];
+    const cancel = idle(() => {
+      ds = Draggable.create(ref.current.querySelectorAll('.chip'), {
+      type: 'x,y',
+      bounds: ref.current,
+      inertia: true,
+      onPress() {
+        gsap.to(this.target, { scale: 1.1, duration: 0.2 });
+      },
+      onRelease() {
+        gsap.to(this.target, { scale: 1, duration: 0.5, ease: 'elastic.out(1, 0.5)' });
+      },
+      });
+    });
+    return () => {
+      cancel();
+      ds.forEach((d) => d.kill());
+    };
+  }, []);
+  return (
+    <div className="board" ref={ref}>
+      {skillTree.branches.map((b) => (
+        <div className="board-group" key={b.title}>
+          <h4>
+            {b.title} <span>{b.note}</span>
+          </h4>
+          <ul>
+            {b.items.map((s) => (
+              <li className="chip" key={s} data-cursor={coarsePointer() ? undefined : 'drag'}>
+                {s}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      <p className="board-lang">Speaks {skillTree.languages.replace(' · ', ' and ')}.</p>
+    </div>
+  );
+}
+
+function Craft() {
+  return (
+    <section className="scene sc-craft" id="craft" data-scene="craft">
+      <div className="wrap">
+        <div className="craft-head">
+          <div>
+            <p className="kicker">How I work</p>
+            <Title as="h2" className="h2" lines={['Code is just', 'another script.']} />
+          </div>
+          <p className="lede">Billlion taught me that good software is a story told in logic. Every screen is a scene, and every function has to earn its place. The terminal below is real.</p>
+        </div>
+        <div className="craft-grid">
+          <Terminal />
+          <SkillBoard />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// --- IIM: a flight path you scroll along, and a boarding pass ---
+
+const FLIGHT = 'M40,300 C200,300 230,120 400,150 C560,178 610,250 720,190 C820,135 860,70 960,70';
+
 function BoardingPass() {
   const [printed, setPrinted] = useState(false);
-  const passRef = useRef(null);
-  const print = () => {
-    if (printed) {
-      gsap.fromTo(passRef.current, { rotate: -2 }, { rotate: 0, duration: 0.6, ease: 'elastic.out(1, 0.4)' });
-      return;
-    }
-    setPrinted(true);
-  };
+  const ref = useRef(null);
   useEffect(() => {
     if (!printed) return;
+    buzz([10, 30, 10, 30, 10]);
     gsap
       .timeline()
-      .fromTo(passRef.current, { yPercent: -100 }, { yPercent: 0, duration: 1.8, ease: 'steps(16)' })
-      .to(passRef.current, { rotate: -1.5, duration: 0.3, ease: 'power2.out' })
-      .to(passRef.current, { rotate: 0, duration: 0.8, ease: 'elastic.out(1, 0.4)' });
+      .fromTo(ref.current, { yPercent: -101 }, { yPercent: 0, duration: 1.6, ease: 'steps(14)' })
+      .to(ref.current, { rotation: -1.5, duration: 0.25, ease: 'power2.out' })
+      .to(ref.current, { rotation: 0, duration: 0.9, ease: 'elastic.out(1, 0.35)' });
   }, [printed]);
   return (
     <div className="bp-wrap">
-      <button type="button" className="btn" onClick={print} data-magnetic>
-        {printed ? 'Boarding pass printed ✓' : 'Print my boarding pass'}
+      <button type="button" className="pill" onClick={() => setPrinted(true)} disabled={printed} data-magnetic>
+        {printed ? 'Printed. See you at Indore.' : 'Print my boarding pass'}
       </button>
       <div className="bp-slot">
         {printed && (
-          <div className="bp" ref={passRef}>
+          <div className="bp" ref={ref}>
             <div className="bp-main">
-              <div className="bp-row">
-                <span>Passenger</span>
-                <b>
-                  {profile.first} {profile.last}
-                </b>
-              </div>
+              <small>Passenger</small>
+              <b>
+                {profile.first} {profile.last}
+              </b>
               <div className="bp-route">
                 <div>
                   <small>From</small>
                   <strong>XII</strong>
-                  <span>Science · PCM</span>
                 </div>
-                <i aria-hidden="true">✈</i>
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                  <path fill="currentColor" d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z" />
+                </svg>
                 <div>
                   <small>To</small>
                   <strong>IIM</strong>
-                  <span>Indore</span>
                 </div>
               </div>
               <div className="bp-grid">
                 <div>
                   <small>Flight</small>
-                  <b>IPMAT-27</b>
+                  <b>IPMAT 27</b>
                 </div>
                 <div>
                   <small>Gate</small>
-                  <b>QA · VA · LR</b>
+                  <b>QA VA LR</b>
                 </div>
                 <div>
-                  <small>Class</small>
-                  <b>5-yr IPM</b>
+                  <small>Seat</small>
+                  <b>IPM, 5 yr</b>
                 </div>
               </div>
             </div>
             <div className="bp-stub" aria-hidden="true">
-              <span>Boarding</span>
+              <small>Boarding</small>
               <b>2027</b>
               <div className="bp-code">
-                {Array.from({ length: 28 }, (_, i) => (
+                {Array.from({ length: 24 }, (_, i) => (
                   <i key={i} style={{ width: `${1 + ((i * 7) % 4)}px` }} />
                 ))}
               </div>
@@ -208,885 +824,270 @@ function BoardingPass() {
   );
 }
 
-// The button nobody can click
-const DODGE_LABELS = ['Hire someone else', 'Nope, too slow', 'Still trying?', 'Okay, just mail me 😌'];
-function DodgeButton() {
-  const zoneRef = useRef(null);
-  const btnRef = useRef(null);
-  const [tries, setTries] = useState(0);
-  const dodge = () => {
-    const zone = zoneRef.current.getBoundingClientRect();
-    const b = btnRef.current;
-    const maxX = Math.max(0, zone.width - b.offsetWidth);
-    const maxY = Math.max(0, zone.height - b.offsetHeight);
-    gsap.to(b, { x: Math.random() * maxX, y: Math.random() * maxY, rotate: (Math.random() - 0.5) * 16, duration: 0.35, ease: 'back.out(2)' });
-    setTries((t) => Math.min(t + 1, DODGE_LABELS.length - 1));
-  };
-  const done = tries === DODGE_LABELS.length - 1;
-  return (
-    <div className="dodge-zone" ref={zoneRef}>
-      {done ? (
-        <a ref={btnRef} className="btn dodge" href={`mailto:${profile.email}`}>
-          {DODGE_LABELS[tries]}
-        </a>
-      ) : (
-        <button ref={btnRef} type="button" className="btn dodge" onPointerEnter={(e) => e.pointerType === 'mouse' && dodge()} onClick={dodge}>
-          {DODGE_LABELS[tries]}
-        </button>
-      )}
-    </div>
-  );
-}
-
-// --- Chrome: gate, cursor, atmosphere, toast and the player-style HUD ---
-
-function Gate({ progress, onEnter }) {
-  const ready = progress >= 1;
-  return (
-    <div className="gate" role="dialog" aria-modal="true" aria-labelledby="gate-name">
-      <div className="gate-inner">
-        <p className="gate-kicker">A webume in eight scenes</p>
-        <p className="gate-name" id="gate-name">
-          {profile.first} <span className="serif">{profile.last}</span>
-        </p>
-        <div className="gate-load" aria-live="polite">
-          <span className="gate-bar">
-            <i style={{ transform: `scaleX(${progress})` }} />
-          </span>
-          <span>{ready ? 'Ready' : `Loading ${Math.round(progress * 100)}%`}</span>
-        </div>
-        <div className={`gate-actions${ready ? ' is-ready' : ''}`}>
-          <button type="button" className="btn btn-primary btn-play" onClick={onEnter} disabled={!ready} data-magnetic>
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
-              <path d="M7 4.5v15l13-7.5z" />
-            </svg>
-            Play
-          </button>
-        </div>
-        <p className="gate-hint">Sound on: a calm ambient score, generated live in your browser</p>
-      </div>
-    </div>
-  );
-}
-
-// Custom cursor, magnetic buttons, and pointer parallax on the depth layers.
-// Transforms are written to those few elements directly: changing a variable on :root
-// would restyle the whole page on every mouse move.
-function PointerFX() {
-  const ringRef = useRef(null);
-  const dotRef = useRef(null);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    const p = { x: 0, y: 0 };
-    const layers = [...document.querySelectorAll('.layer')].map((el) => [el, Number(el.dataset.depth) || 0]);
-    const tilt = document.querySelector('.bl-tilt');
-    const still = prefersReducedMotion();
-    const write = () => {
-      if (still) return;
-      layers.forEach(([el, d]) => {
-        el.style.translate = `${(p.x * d).toFixed(1)}px ${(p.y * d).toFixed(1)}px`;
-      });
-      if (tilt) tilt.style.transform = root.classList.contains('cine') ? `rotateX(${(-p.y * 4).toFixed(2)}deg) rotateY(${(p.x * 6).toFixed(2)}deg)` : '';
-    };
-    const toPx = gsap.quickTo(p, 'x', { duration: 1.2, ease: 'power3', onUpdate: write });
-    const toPy = gsap.quickTo(p, 'y', { duration: 1.2, ease: 'power3', onUpdate: write });
-
-    const fine = window.matchMedia('(pointer: fine)').matches && !prefersReducedMotion();
-    const ring = ringRef.current;
-    const dot = dotRef.current;
-    const ringX = fine && gsap.quickTo(ring, 'x', { duration: 0.45, ease: 'power3' });
-    const ringY = fine && gsap.quickTo(ring, 'y', { duration: 0.45, ease: 'power3' });
-    const dotX = fine && gsap.quickTo(dot, 'x', { duration: 0.08 });
-    const dotY = fine && gsap.quickTo(dot, 'y', { duration: 0.08 });
-    if (fine) root.classList.add('has-cursor');
-
-    let magnet = null;
-    const release = () => {
-      if (magnet) gsap.to(magnet, { x: 0, y: 0, duration: 0.7, ease: 'elastic.out(1, 0.4)' });
-      magnet = null;
-    };
-
-    const onMove = (e) => {
-      toPx((e.clientX / window.innerWidth) * 2 - 1);
-      toPy((e.clientY / window.innerHeight) * 2 - 1);
-      if (!fine) return;
-      ringX(e.clientX);
-      ringY(e.clientY);
-      dotX(e.clientX);
-      dotY(e.clientY);
-      const hit = e.target.closest && e.target.closest('a, button');
-      ring.classList.toggle('is-hover', !!hit);
-      const m = e.target.closest && e.target.closest('[data-magnetic]');
-      if (m !== magnet) release();
-      if (m) {
-        magnet = m;
-        const r = m.getBoundingClientRect();
-        gsap.to(m, { x: (e.clientX - r.left - r.width / 2) * 0.3, y: (e.clientY - r.top - r.height / 2) * 0.4, duration: 0.4, ease: 'power3.out' });
-      }
-    };
-    const onDown = () => fine && ring.classList.add('is-down');
-    const onUp = () => fine && ring.classList.remove('is-down');
-    window.addEventListener('pointermove', onMove, { passive: true });
-    window.addEventListener('pointerdown', onDown);
-    window.addEventListener('pointerup', onUp);
-    return () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerdown', onDown);
-      window.removeEventListener('pointerup', onUp);
-      root.classList.remove('has-cursor');
-    };
-  }, []);
-
-  return (
-    <>
-      <div className="cursor-ring" ref={ringRef} aria-hidden="true" />
-      <div className="cursor-dot" ref={dotRef} aria-hidden="true" />
-    </>
-  );
-}
-
-// "New area" style toast whenever a scene starts
-function SceneToast({ scene, live }) {
-  const ref = useRef(null);
-  const first = useRef(true);
-  useEffect(() => {
-    if (!live) return undefined;
-    if (first.current) {
-      first.current = false;
-      return undefined;
-    }
-    if (prefersReducedMotion()) return undefined;
-    const el = ref.current;
-    const tl = gsap
-      .timeline()
-      .set(el, { autoAlpha: 1 })
-      .fromTo(el.querySelector('.toast-line'), { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: 'expo.out' })
-      .fromTo(el.querySelectorAll('.toast-text > *'), { yPercent: 110 }, { yPercent: 0, stagger: 0.07, duration: 0.6, ease: 'expo.out' }, 0.1)
-      .to(el, { autoAlpha: 0, duration: 0.5 }, 1.8);
-    return () => tl.kill();
-  }, [scene, live]);
-  return (
-    <div className="toast" ref={ref} aria-hidden="true">
-      <span className="toast-line" />
-      <div className="toast-text">
-        <span>Scene {pad(scene + 1)}</span>
-        <strong>{scenes[scene].label}</strong>
-      </div>
-    </div>
-  );
-}
-
-function Hud({ soundOn, onToggleSound, scene, ticks, onJump, fillRef, timeRef }) {
-  return (
-    <>
-      <header className="hud hud-top">
-        <a
-          className="mark"
-          href="#intro"
-          onClick={(e) => {
-            e.preventDefault();
-            onJump(0);
-          }}
-        >
-          <b>DA</b>
-          <span>
-            {profile.first} {profile.last}
-          </span>
-        </a>
-        <button type="button" className={`sound${soundOn ? ' is-on' : ''}`} onClick={onToggleSound} aria-pressed={soundOn} data-magnetic>
-          <span className="sound-bars" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-            <i />
-          </span>
-          <span>{soundOn ? 'Sound on' : 'Sound off'}</span>
-        </button>
-      </header>
-
-      <nav className="hud hud-bottom" aria-label="Scenes">
-        <span className="timecode">
-          <span ref={timeRef}>00:00</span> / {formatTime(RUNTIME)}
-        </span>
-        <div className="timeline">
-          <span className="timeline-track" />
-          <span className="timeline-fill" ref={fillRef} />
-          {ticks.map((t, i) => (
-            <button
-              key={scenes[i].id}
-              type="button"
-              className={`timeline-tick${i <= scene ? ' is-past' : ''}`}
-              style={{ left: `${t.pos * 100}%` }}
-              onClick={() => onJump(i)}
-              aria-label={`Scene ${i + 1}: ${scenes[i].label}`}
-            >
-              <span aria-hidden="true">{scenes[i].label}</span>
-            </button>
-          ))}
-        </div>
-        <span className="scene-label">
-          {pad(scene + 1)} · {scenes[scene].label}
-        </span>
-      </nav>
-    </>
-  );
-}
-
-// --- Scenes ---
-
-function Hero() {
-  return (
-    <section className="scene s-hero" id="intro">
-      <div className="shape-anchor hero-anchor">
-        <span className="hero-fallback">{profile.first}</span>
-      </div>
-      <div className="hero-copy">
-        <h1 className="hero-title">
-          <span className="sr-only">{profile.first} </span>
-          <span className="serif">{profile.last}</span>
-        </h1>
-        <p className="hero-tag">{profile.tagline}</p>
-      </div>
-      <div className="hero-cue">
-        <span>
-          Scroll to play <i />
-        </span>
-      </div>
-    </section>
-  );
-}
-
-function Record() {
-  return (
-    <section className="scene s-record" id="record">
-      <BgWord>RECORD</BgWord>
-      <div className="split">
-        <div className="split-copy">
-          <Eyebrow index={2}>The record</Eyebrow>
-          <h2 className="display">
-            <Line>Numbers that</Line>
-            <Line serif>held up.</Line>
-          </h2>
-          <div className="stats">
-            {record.map((r) => (
-              <div className="stat" key={r.grade}>
-                <div className="stat-value">
-                  <span data-count={r.value} data-decimals="1">
-                    {r.value.toFixed(1)}
-                  </span>
-                  <small>%</small>
-                </div>
-                <div className="stat-meter">
-                  <i style={{ '--v': r.value / 100 }} />
-                </div>
-                <p className="stat-meta">
-                  <b>{r.grade}</b> · {r.track}
-                  <br />
-                  {r.school}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="shape-anchor split-visual" />
-      </div>
-    </section>
-  );
-}
-
-function Billlion() {
-  return (
-    <section className="scene s-billlion" id="billlion">
-      <BgWord depth={18}>BILLLION</BgWord>
-      <div className="shape-anchor bl-anchor" />
-      <div className="bl-head">
-        <Eyebrow index={3}>The product</Eyebrow>
-        <h2 className="bl-word">
-          Bi<span>lll</span>ion
-        </h2>
-        <p className="bl-pitch">{billlion.pitch}</p>
-        <p className="bl-layers serif">{billlion.layersLine}</p>
-      </div>
-
-      <div className="bl-caps" aria-hidden="true">
-        {billlion.shots.map((s, i) => (
-          <div className="bl-cap" key={s.title}>
-            <span>
-              {pad(i + 1)} / {pad(billlion.shots.length)}
-            </span>
-            <h3>{s.title}</h3>
-            <p>{s.body}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="bl-stage">
-        <div className="bl-tilt">
-          <div className="bl-stack">
-            {billlion.shots.map((s) => (
-              <figure className="bl-shot" key={s.title} onPointerMove={spotlight}>
-                <img src={s.src} alt={`Billlion: ${s.title}`} loading="lazy" width="2000" height="1250" />
-                <figcaption>
-                  <h3>{s.title}</h3>
-                  <p>{s.body}</p>
-                </figcaption>
-              </figure>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <p className="bl-role">
-        {billlion.role}
-        <span>{billlion.demoNote}</span>
-      </p>
-    </section>
-  );
-}
-
-function SkillTree() {
-  const boardRef = useRef(null);
-
-  // Curves from the core to each branch's node, recomputed whenever the board changes size
-  useEffect(() => {
-    const board = boardRef.current;
-    const draw = () => {
-      const svg = board.querySelector('.tree-lines');
-      const core = offsetWithin(board.querySelector('.tree-core'), board);
-      svg.setAttribute('viewBox', `0 0 ${board.offsetWidth} ${board.offsetHeight}`);
-      const paths = svg.querySelectorAll('path');
-      board.querySelectorAll('.tree-dot').forEach((dot, i) => {
-        const d = offsetWithin(dot, board);
-        const hx = d.x + d.w / 2;
-        const hy = d.y + d.h / 2;
-        const left = hx < core.x + core.w / 2;
-        const cx = left ? core.x : core.x + core.w;
-        const cy = core.y + core.h / 2;
-        const mx = (cx + hx) / 2;
-        paths[i].setAttribute('d', `M${cx},${cy} C${mx},${cy} ${mx},${hy} ${hx},${hy}`);
-      });
-    };
-    draw();
-    const ro = new ResizeObserver(draw);
-    ro.observe(board);
-    return () => ro.disconnect();
-  }, []);
-
-  return (
-    <div className="tree" data-dim>
-      <h3 className="h3">
-        The skill tree. <span className="serif">Built branch by branch.</span>
-      </h3>
-      <div className="tree-board" ref={boardRef}>
-        <svg className="tree-lines" aria-hidden="true">
-          {skillTree.branches.map((b) => (
-            <path key={b.title} pathLength="1" />
-          ))}
-        </svg>
-        <div className="tree-core">
-          <span className="tree-ring" aria-hidden="true" />
-          <b className="serif">DA</b>
-          <span className="tree-core-label">Languages</span>
-          <span className="tree-core-value">{skillTree.languages}</span>
-        </div>
-        {skillTree.branches.map((b, i) => (
-          <article className={`tree-branch tree-branch-${i}`} key={b.title} onPointerMove={spotlight}>
-            <header className="tree-head">
-              <i className="tree-dot" aria-hidden="true" />
-              <span>{pad(i + 1)}</span>
-              <h4>{b.title}</h4>
-              <em>{b.note}</em>
-            </header>
-            <ul className="chips">
-              {b.items.map((s) => (
-                <li className="chip" key={s}>
-                  {s}
-                </li>
-              ))}
-            </ul>
-          </article>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Craft() {
-  const [build, lead, speak, create] = skillTree.branches;
-  const marquee = [build.items.concat(lead.items), speak.items.concat(create.items)];
-  return (
-    <section className="scene s-craft" id="craft">
-      <div className="craft-pin">
-        <BgWord>CRAFT</BgWord>
-        <div className="split">
-          <div className="split-copy">
-            <Eyebrow index={5}>The craft</Eyebrow>
-            <h2 className="display">
-              <Line>Code is just</Line>
-              <Line serif>another script.</Line>
-            </h2>
-            <p className="lede">
-              Billlion taught me that good software is a story told in logic. Every screen is a scene, and every function has to earn its place.
-            </p>
-            <p className="term-hint">The terminal is real. Type <code>help</code>.</p>
-          </div>
-          <div className="craft-visual">
-            <div className="shape-anchor craft-anchor" />
-            <Terminal />
-          </div>
-        </div>
-      </div>
-
-      <div className="marquee" aria-hidden="true">
-        {marquee.map((items, row) => (
-          <div className="marquee-row" key={row}>
-            <div className="marquee-track">
-              {items.concat(items).map((s, i) => (
-                <span className="marquee-item" key={i}>
-                  {s}
-                </span>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <SkillTree />
-    </section>
-  );
-}
+const STOPS = [
+  [40, 300, 'Class XII', 'Science, PCM', 'start', -50],
+  [400, 150, 'IPMAT 2027', 'QA, VA, LR', 'middle', -50],
+  [960, 70, 'IIM Indore', '5-year IPM', 'end', 44],
+];
 
 function Next() {
   return (
-    <section className="scene s-next" id="next">
-      <BgWord>IIM 2027</BgWord>
-      <div className="split">
-        <div className="split-copy">
-          <Eyebrow index={7}>What's next</Eyebrow>
-          <h2 className="display">
-            <Line>Next stop:</Line>
-            <Line serif>IIM.</Line>
-          </h2>
-          <p className="lede">{next.line}</p>
-          <ol className="targets">
-            {next.targets.map((t, i) => (
-              <li className={`target${t.tag ? ' is-primary' : ''}`} key={t.name}>
-                <span className="t-idx">{pad(i + 1)}</span>
-                <span className="t-name">{t.name}</span>
-                {t.tag && <em>{t.tag}</em>}
-              </li>
-            ))}
-          </ol>
-          <div className="tracks">
-            <span>Preparing</span>
-            {next.tracks.map((t) => (
-              <b key={t}>{t}</b>
-            ))}
+    <section className="scene sc-next" id="next" data-scene="next">
+      <div className="fl-pin">
+        <div className="wrap fl-wrap">
+          <div className="fl-copy">
+            <p className="kicker">What's next</p>
+            <Title as="h2" className="h2" lines={['Next stop:', 'IIM Indore.']} />
+            <p className="lede">{next.line}</p>
           </div>
+          <svg className="fl-map" viewBox="0 0 1000 360" aria-hidden="true">
+            <path className="fl-guide" d={FLIGHT} />
+            <path className="fl-path" d={FLIGHT} />
+            {STOPS.map(([x, y, a, b, anchor, dy], i) => (
+              <g className={`fl-stop fl-stop-${i}`} key={a} transform={`translate(${x} ${y})`}>
+                <circle r="9" />
+                <text y={dy} textAnchor={anchor}>
+                  {a}
+                </text>
+                <text className="fl-sub" y={dy + 22} textAnchor={anchor}>
+                  {b}
+                </text>
+              </g>
+            ))}
+            <g className="fl-plane">
+              <path d="M-14,-4 L10,0 L-14,4 L-9,0 Z M-6,-1 L-12,-11 L-8,-11 L2,-1 Z M-6,1 L-12,11 L-8,11 L2,1 Z" />
+            </g>
+          </svg>
         </div>
-        <div className="next-visual">
-          <div className="shape-anchor split-visual" />
-          <BoardingPass />
-        </div>
+      </div>
+      <div className="wrap fl-after">
+        <ol className="targets">
+          {next.targets.map((t) => (
+            <li key={t.name} className={t.tag ? 'is-primary' : ''}>
+              <b>{t.name}</b>
+              {t.tag && <span>{t.tag}</span>}
+            </li>
+          ))}
+        </ol>
+        <BoardingPass />
       </div>
     </section>
   );
 }
 
-function Credits({ onReplay }) {
-  return (
-    <section className="scene s-credits" id="credits">
-      <BgWord depth={14}>FIN</BgWord>
-      <div className="shape-anchor credits-anchor" />
-      <div className="contact">
-        <Eyebrow index={8}>Credits</Eyebrow>
-        <h2 className="display">
-          <Line>Let's write</Line>
-          <Line serif>the next scene.</Line>
-        </h2>
-        <a className="contact-mail" href={`mailto:${profile.email}`}>
-          {profile.email} <Arrow />
-        </a>
-        <div className="contact-links">
-          <a className="btn" href={profile.linkedin} target="_blank" rel="noopener noreferrer" data-magnetic>
-            LinkedIn <Arrow />
-          </a>
-          <a className="btn" href={profile.linktree} target="_blank" rel="noopener noreferrer" data-magnetic>
-            All my links <Arrow />
-          </a>
-        </div>
-        <DodgeButton />
-      </div>
+// --- Credits: one question, a dodging no, and a replay ---
 
-      <div className="credits-roll">
-        <dl>
+const NO = ['No', 'Are you sure?', 'Really?', 'Okay, yes'];
+
+function Credits({ onReplay }) {
+  const [said, setSaid] = useState(false);
+  const [tries, setTries] = useState(0);
+  const zoneRef = useRef(null);
+  const noRef = useRef(null);
+  const dodge = () => {
+    if (tries >= NO.length - 1) return;
+    const z = zoneRef.current.getBoundingClientRect();
+    const b = noRef.current;
+    gsap.to(b, {
+      x: (Math.random() - 0.5) * Math.max(0, z.width - b.offsetWidth * 2),
+      y: (Math.random() - 0.5) * 80,
+      rotation: (Math.random() - 0.5) * 14,
+      duration: 0.4,
+      ease: 'back.out(2.4)',
+    });
+    buzz(12);
+    setTries((t) => t + 1);
+  };
+  const yes = (e) => {
+    setSaid(true);
+    buzz([20, 40, 80]);
+    const b = e.currentTarget.getBoundingClientRect();
+    confetti(b.left + b.width / 2, b.top, 90);
+  };
+  return (
+    <section className="scene sc-credits" id="credits" data-scene="credits">
+      <div className="wrap">
+        {!said ? (
+          <div className="ask">
+            <Title as="h2" className="h2 ask-q" lines={['So, should we build', 'something together?']} />
+            <div className="ask-zone" ref={zoneRef}>
+              <button type="button" className="pill pill-solid ask-yes" onClick={yes} data-magnetic>
+                Yes, let's talk
+              </button>
+              <button
+                type="button"
+                ref={noRef}
+                className="pill ask-no"
+                onPointerEnter={(e) => e.pointerType === 'mouse' && dodge()}
+                onClick={(e) => (tries >= NO.length - 1 ? yes(e) : dodge())}
+              >
+                {NO[tries]}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="ask">
+            <h2 className="h2">Good answer. Write to me.</h2>
+          </div>
+        )}
+        <div className={`contact${said ? ' is-lit' : ''}`}>
+          <a className="contact-mail" href={`mailto:${profile.email}`}>
+            {profile.email}
+          </a>
+          <div className="contact-links">
+            <a className="pill" href={profile.linkedin} target="_blank" rel="noopener noreferrer" data-magnetic>
+              LinkedIn <Arrow />
+            </a>
+            <a className="pill" href={profile.linktree} target="_blank" rel="noopener noreferrer" data-magnetic>
+              All my links <Arrow />
+            </a>
+          </div>
+        </div>
+        <dl className="roll">
           {credits.map(([role, name]) => (
-            <div className="credit" key={role}>
+            <div key={role}>
               <dt>{role}</dt>
               <dd>{name}</dd>
             </div>
           ))}
         </dl>
-        <p className="fin serif">Fin.</p>
-        <button type="button" className="btn" onClick={onReplay} data-magnetic>
-          ↺ Replay from the start
-        </button>
-        <p className="site-foot">
-          © {new Date().getFullYear()} {profile.first} {profile.last} · Webume
-        </p>
+        <div className="end">
+          <button type="button" className="pill" onClick={onReplay} data-magnetic>
+            Replay from the top
+          </button>
+          <p>
+            © {new Date().getFullYear()} {profile.first} {profile.last}
+          </p>
+        </div>
       </div>
     </section>
   );
 }
 
-// All eight scenes. Memoised so scene changes (which update the HUD) never re-render the film.
-const Film = memo(function Film({ onReplay }) {
+const Page = memo(function Page({ onZoom, onReplay }) {
   return (
     <main>
-      <div className="scene-wrap">
-        <Hero />
-      </div>
-      <div className="scene-wrap">
-        <Record />
-      </div>
-      <div className="scene-wrap">
-        <Billlion />
-      </div>
-      <div className="scene-wrap">
-        <VigilScene index={4} />
-      </div>
-      <div className="scene-wrap">
-        <Craft />
-      </div>
-      <div className="scene-wrap">
-        <SarathiScene index={6} />
-      </div>
-      <div className="scene-wrap">
-        <Next />
-      </div>
-      <div className="scene-wrap">
-        <Credits onReplay={onReplay} />
-      </div>
+      <Hero />
+      <Marquee />
+      <Record />
+      <Billlion onZoom={onZoom} />
+      <VigilScene />
+      <Craft />
+      <SarathiScene />
+      <Next />
+      <Credits onReplay={onReplay} />
     </main>
   );
 });
 
-// --- Scroll choreography ---
+// --- Motion ---
 
-function buildTimelines(desktop) {
-  const root = document.documentElement;
-  const restore = [];
-  if (desktop) root.classList.add('cine');
-  restore.push(() => root.classList.remove('cine'));
-
-  const countUp = (tl, el, at, duration = 1) => {
-    const target = parseFloat(el.dataset.count);
-    const decimals = Number(el.dataset.decimals || 0);
-    const original = el.textContent;
-    const format = (v) => v.toLocaleString('en-IN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-    const state = { v: 0 };
-    el.textContent = format(0);
-    restore.push(() => {
-      el.textContent = original;
-    });
-    tl.to(state, { v: target, duration, ease: 'power2.out', onUpdate: () => (el.textContent = format(state.v)) }, at);
-  };
-
-  const typeOut = (tl, el, perChar) => {
-    const full = el.dataset.text;
-    const state = { n: 0 };
-    el.textContent = '';
-    restore.push(() => {
-      el.textContent = full;
-    });
-    tl.to(state, { n: full.length, duration: full.length * perChar, ease: 'none', onUpdate: () => (el.textContent = full.slice(0, Math.round(state.n))) });
-  };
-
-  const revealOnEnter = (targets, trigger, vars = {}) =>
-    gsap.from(targets, { autoAlpha: 0, y: 40, duration: 1.1, stagger: 0.1, ease: 'expo.out', scrollTrigger: { trigger, start: 'top 82%' }, ...vars });
-
-  // Headlines flip in letter by letter as their scene arrives, so a pinned scene never opens empty
-  const headline = (scene) => {
-    const split = SplitText.create(`${scene} .mask > span`, { type: 'words,chars', wordsClass: 'split-w' });
-    gsap.from(split.chars, {
-      yPercent: 115,
-      rotateX: -85,
-      autoAlpha: 0,
-      transformOrigin: '50% 100%',
-      stagger: 0.022,
-      duration: 1.2,
-      ease: 'expo.out',
-      scrollTrigger: { trigger: scene, start: 'top 70%' },
-    });
-    revealOnEnter(`${scene} .eyebrow`, scene, { scrollTrigger: { trigger: scene, start: 'top 70%' } });
-  };
-
-  // Hero flies past the camera as the film starts
-  gsap.to('.hero-copy', {
-    scale: desktop ? 1.5 : 1.2,
-    yPercent: -20,
-    autoAlpha: 0,
-    ease: 'none',
-    scrollTrigger: { trigger: '.s-hero', start: 'top top', end: 'bottom top', scrub: true },
-  });
-  gsap.to('.hero-cue', { autoAlpha: 0, ease: 'none', scrollTrigger: { trigger: '.s-hero', start: 'top top', end: '25% top', scrub: true } });
-
-  // Giant background words slide across their scene
-  gsap.utils.toArray('.bg-word').forEach((word, i) => {
-    gsap.fromTo(
-      word,
-      { xPercent: i % 2 ? -30 : 10 },
-      { xPercent: i % 2 ? 10 : -30, ease: 'none', scrollTrigger: { trigger: word.closest('.scene-wrap'), start: 'top bottom', end: 'bottom top', scrub: true } }
-    );
+// Pinned scenes change the page height, so they are built up front; every other scene builds its
+// choreography only as it nears the screen, which spreads the setup cost across the scroll.
+const titles = (scope) =>
+  scope.querySelectorAll('.title, .vg-word, .sr-name').forEach((t) => {
+    gsap.from(t.querySelectorAll('.mask-in'), { yPercent: 108, rotation: 3, duration: 1.1, stagger: 0.09, ease: 'dev', scrollTrigger: { trigger: t, start: 'top 85%' } });
   });
 
-  // Record: headline, then the numbers count up
-  {
-    headline('.s-record');
-    const tl = desktop
-      ? gsap.timeline({ scrollTrigger: { trigger: '.s-record', start: 'top top', end: '+=140%', pin: true, scrub: 1 } })
-      : gsap.timeline({ scrollTrigger: { trigger: '.stats', start: 'top 80%' }, defaults: { duration: 1.4 } });
-    tl.from('.s-record .stat', { autoAlpha: 0, y: 40, rotateX: -25, stagger: 0.25, duration: 0.5 }, 0.35);
-    gsap.utils.toArray('.s-record [data-count]').forEach((el, i) => {
-      countUp(tl, el, 0.45 + i * 0.25);
-      tl.from(el.closest('.stat').querySelector('.stat-meter i'), { scaleX: 0, duration: 1, ease: 'power2.out' }, 0.45 + i * 0.25);
+const pinnedMotion = (desktop) => [
+  () => {
+    // The hero leaves by scattering its letters upward at different speeds
+    gsap.to('.hl-mask', {
+      yPercent: (i) => -50 - ((i * 37) % 70),
+      rotation: (i) => (i % 2 ? 1 : -1) * (6 + ((i * 13) % 12)),
+      ease: 'none',
+      scrollTrigger: { trigger: '.sc-intro', start: 'top top', end: 'bottom top', scrub: true },
     });
-    if (desktop) tl.to({}, { duration: 0.5 });
-  }
-
-  // Billlion: the name lands, the product's screens rise as an exploded stack of layers, then deal out one by one
-  if (desktop) {
-    const section = document.querySelector('.s-billlion');
-    const word = document.querySelector('.bl-word');
-    const s = section.getBoundingClientRect();
-    const w = word.getBoundingClientRect();
-    const dx = window.innerWidth / 2 - (w.left + w.width / 2);
-    const dy = window.innerHeight / 2 - (w.top - s.top + w.height / 2);
-    const shots = gsap.utils.toArray('.bl-shot');
-    const caps = gsap.utils.toArray('.bl-cap');
-
-    gsap.set('.bl-stack', { rotateX: 58, rotateZ: -36, scale: 0.78 });
-    gsap.set(shots, { z: (i) => -i * 6 });
-    gsap.set(caps, { autoAlpha: 0 });
-
-    const tl = gsap.timeline({ scrollTrigger: { trigger: section, start: 'top top', end: `+=${140 + shots.length * 60}%`, pin: true, scrub: 1 } });
-    tl.from(word, { x: dx, y: dy, scale: 2.2, duration: 1, ease: 'power2.inOut' })
-      .from('.s-billlion .eyebrow, .bl-pitch', { autoAlpha: 0, y: 20, stagger: 0.1, duration: 0.4 }, 0.6)
-      .from('.bl-stage', { yPercent: 70, autoAlpha: 0, duration: 1, ease: 'power2.out' }, 0.6)
-      .from('.bl-layers', { autoAlpha: 0, y: 20, duration: 0.4 }, 1.3)
-      .to(shots, { z: (i) => -i * 120, duration: 1.1, ease: 'power2.inOut' }, 1.4)
-      .to({}, { duration: 0.3 })
-      .to('.bl-stack', { rotateX: 0, rotateZ: 0, scale: 1, duration: 1.1, ease: 'power3.inOut' }, 2.8)
-      .to(shots, { z: (i) => -i * 26, duration: 1.1, ease: 'power3.inOut' }, 2.8)
-      .to('.bl-layers', { autoAlpha: 0, y: -20, duration: 0.3 }, 2.8)
-      .to(caps[0], { autoAlpha: 1, duration: 0.4 }, 3.5)
-      .from(caps[0], { y: 30, duration: 0.4 }, 3.5);
-    shots.slice(0, -1).forEach((shot, i) => {
-      const at = 4.2 + i;
-      tl.to(shot, { yPercent: -125, rotateX: 35, autoAlpha: 0, duration: 0.7, ease: 'power2.in' }, at)
-        .to(shots.slice(i + 1), { z: (j) => -j * 26, duration: 0.7, ease: 'power2.out' }, at + 0.15)
-        .to(caps[i], { autoAlpha: 0, y: -30, duration: 0.3 }, at)
-        .fromTo(caps[i + 1], { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.4 }, at + 0.4);
-    });
-    tl.from('.bl-role', { autoAlpha: 0, duration: 0.4 }).to({}, { duration: 0.6 });
-  } else {
-    revealOnEnter('.s-billlion .eyebrow, .bl-word, .bl-pitch, .bl-layers', '.bl-head');
-    gsap.utils.toArray('.bl-shot').forEach((shot) =>
-      gsap.from(shot, { autoAlpha: 0, y: 60, rotateX: 28, transformOrigin: '50% 0%', duration: 1.2, ease: 'expo.out', scrollTrigger: { trigger: shot, start: 'top 85%' } })
-    );
-    revealOnEnter('.bl-role', '.bl-role');
-  }
-
-  // Vigil: Mayu lands and fans out, the promo tilts up into view, then the lab and features rise
-  {
-    headline('.s-vigil');
-    const tl = gsap.timeline({ scrollTrigger: { trigger: '.vg-hero', start: 'top 70%' } });
-    tl.from('.vg-mayu', { y: 120, scale: 0.3, autoAlpha: 0, duration: 0.9, ease: 'back.out(1.8)' })
-      .fromTo('.vg-mayu .pk-feather', { rotation: 0, svgOrigin: '60 76' }, { rotation: (i, el) => Number(el.dataset.a), svgOrigin: '60 76', duration: 0.8, stagger: 0.03, ease: 'back.out(2)' }, 0.3)
-      .from('.vg-word', { yPercent: 60, autoAlpha: 0, duration: 1, ease: 'expo.out' }, 0.2)
-      .from('.s-vigil .lede, .vg-pills li', { autoAlpha: 0, y: 24, stagger: 0.06, duration: 0.7, ease: 'expo.out' }, 0.6);
-    gsap.fromTo(
-      '.vg-promo',
-      { rotateX: desktop ? 28 : 12, scale: 0.86, autoAlpha: 0.3 },
-      { rotateX: 0, scale: 1, autoAlpha: 1, ease: 'none', scrollTrigger: { trigger: '.vg-promo', start: 'top bottom', end: 'top 30%', scrub: true } }
-    );
-    revealOnEnter('.lab-card', '.vg-lab', { y: 70 });
-    revealOnEnter('.vg-feature', '.vg-features', { y: 50, stagger: 0.07 });
-    revealOnEnter('.vg-gallery-head > *, .vg-shot', '.vg-gallery', { x: 60, y: 0, stagger: 0.06 });
-  }
-
-  // Craft: the terminal types itself out
-  {
-    const lines = gsap.utils.toArray('.term-line');
-    headline('.s-craft');
+    gsap.to('.hero-back span', { xPercent: -18, ease: 'none', scrollTrigger: { trigger: '.sc-intro', start: 'top top', end: 'bottom top', scrub: true } });
+  },
+  () => {
+    // Billlion: the three L's are stock bars that fill as the scene pins
+    const bars = gsap.utils.toArray('.bl-bars i');
     if (desktop) {
-      const tl = gsap.timeline({ scrollTrigger: { trigger: '.craft-pin', start: 'top top', end: '+=150%', pin: true, scrub: 1 } });
-      tl.from('.s-craft .lede', { autoAlpha: 0, y: 20, duration: 0.4 }, 0.1).from('.terminal', { autoAlpha: 0, y: 60, rotateY: -18, rotateX: 8, duration: 0.6 }, 0.2);
-      lines.forEach((l) => typeOut(tl, l, 0.025));
-      tl.to({}, { duration: 0.4 });
+      gsap
+        .timeline({ scrollTrigger: { trigger: '.bl-pin', start: 'top top', end: '+=110%', pin: true, scrub: 0.6 } })
+        .fromTo(bars, { scaleY: 0.32 }, { scaleY: (i) => [0.78, 1, 0.9][i], stagger: 0.12, duration: 1, ease: 'devInOut' })
+        .fromTo('.bl-bi', { xPercent: 18 }, { xPercent: 0, duration: 1, ease: 'devInOut' }, 0)
+        .fromTo('.bl-ion', { xPercent: -18 }, { xPercent: 0, duration: 1, ease: 'devInOut' }, 0)
+        .from('.bl-pitch', { y: 30, opacity: 0, duration: 0.6, ease: 'dev' }, 0.5)
+        .to('.bl-intro', { scale: 0.94, opacity: 0, duration: 0.6, ease: 'devInOut' }, 1.6);
     } else {
-      revealOnEnter('.s-craft .lede, .terminal', '.s-craft');
-      const tl = gsap.timeline({ scrollTrigger: { trigger: '.terminal', start: 'top 75%' } });
-      lines.forEach((l) => typeOut(tl, l, 0.03));
+      gsap.fromTo(bars, { scaleY: 0.32 }, { scaleY: (i) => [0.78, 1, 0.9][i], stagger: 0.12, duration: 1.2, ease: 'elastic.out(1, 0.6)', scrollTrigger: { trigger: '.bl-word', start: 'top 80%' } });
     }
+  },
+  () => {
+    // IIM: the route draws itself and the plane flies it as you scroll
+    gsap
+      .timeline({
+        scrollTrigger: desktop ? { trigger: '.fl-pin', start: 'top top', end: '+=140%', pin: true, scrub: 0.8 } : { trigger: '.fl-map', start: 'top 85%', end: 'bottom 40%', scrub: 0.8 },
+      })
+      .fromTo('.fl-path', { drawSVG: '0%' }, { drawSVG: '100%', duration: 3, ease: 'none' }, 0)
+      .to('.fl-plane', { motionPath: { path: '.fl-path', align: '.fl-path', alignOrigin: [0.5, 0.5], autoRotate: true }, duration: 3, ease: 'none' }, 0)
+      .from('.fl-stop-0', { scale: 0, transformOrigin: '50% 50%', duration: 0.3, ease: 'back.out(3)' }, 0)
+      .from('.fl-stop-1', { scale: 0, transformOrigin: '50% 50%', duration: 0.3, ease: 'back.out(3)' }, 1.15)
+      .from('.fl-stop-2', { scale: 0, transformOrigin: '50% 50%', duration: 0.3, ease: 'back.out(3)' }, 2.75);
+  },
+];
 
-    // Two skill rows that run faster, and flip direction, with your scroll
-    const loops = gsap.utils.toArray('.marquee-track').map((track, i) => {
-      const loop = gsap.fromTo(track, { xPercent: i % 2 ? -50 : 0 }, { xPercent: i % 2 ? 0 : -50, duration: 40, ease: 'none', repeat: -1 });
-      loop.totalTime(loop.duration() * 50);
-      return loop;
-    });
-    ScrollTrigger.create({
-      trigger: '.marquee',
-      start: 'top bottom',
-      end: 'bottom top',
-      onUpdate: (self) => {
-        const boost = 1 + Math.min(Math.abs(self.getVelocity()) / 250, 6);
-        loops.forEach((loop) => {
-          gsap.killTweensOf(loop);
-          loop.timeScale(boost * self.direction);
-          gsap.to(loop, { timeScale: self.direction, duration: 1, ease: 'power2.out' });
-        });
-      },
-    });
-
-    // Skill tree: the core powers up, branches grow out of it, then each node unlocks
-    const tl = desktop
-      ? gsap.timeline({ scrollTrigger: { trigger: '.tree-board', start: 'top 75%', end: 'center 45%', scrub: 1 } })
-      : gsap.timeline({ scrollTrigger: { trigger: '.tree-board', start: 'top 80%' }, defaults: { duration: 0.5 } });
-    revealOnEnter('.tree .h3', '.tree');
-    tl.from('.tree-core', { scale: 0.4, autoAlpha: 0, duration: 0.6, ease: 'back.out(1.6)' })
-      .fromTo('.tree-lines path', { strokeDashoffset: 1 }, { strokeDashoffset: 0, duration: 1, stagger: 0.1, ease: 'none' }, 0.3)
-      .from('.tree-dot', { scale: 0, duration: 0.3, stagger: 0.1, ease: 'back.out(3)' }, 1)
-      .from('.tree-head > :not(.tree-dot)', { autoAlpha: 0, x: (i, el) => (el.closest('.tree-branch-0, .tree-branch-2') && desktop ? 20 : -20), stagger: 0.03, duration: 0.4 }, 1.1)
-      .from('.tree .chip', { autoAlpha: 0, scale: 0.6, stagger: 0.02, duration: 0.3, ease: 'back.out(2)' }, 1.3);
-  }
-
-  // Sarathi: the key art opens up into a full-screen frame with subtitles
-  {
-    headline('.s-sarathi');
-    const tl = gsap.timeline({ scrollTrigger: { trigger: '.st-pin', start: 'top top', end: '+=240%', pin: true, scrub: 1 } });
-    tl.fromTo(
-      '.st-frame',
-      { clipPath: desktop ? 'inset(46% 24% 10% 24% round 22px)' : 'inset(48% 4% 14% 4% round 16px)' },
-      { clipPath: 'inset(0% 0% 0% 0% round 0px)', duration: 1.4, ease: 'power2.inOut' },
-      0.4
-    )
-      .fromTo('.st-frame img', { scale: 1.35 }, { scale: 1.04, duration: 2.8, ease: 'none' }, 0.4)
-      .to('.st-intro', { autoAlpha: 0, y: -80, scale: 0.95, duration: 0.8 }, 0.8)
-      .fromTo('.st-bars i', { scaleY: 0 }, { scaleY: 1, duration: 0.6 }, 1.4)
-      .from('.st-tag', { autoAlpha: 0, y: 20, duration: 0.4 }, 1.8);
-    gsap.utils.toArray('.st-cap').forEach((cap, i, all) => {
-      tl.fromTo(cap, { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, duration: 0.3 }, 1.9 + i * 0.7);
-      if (i < all.length - 1) tl.to(cap, { autoAlpha: 0, duration: 0.25 }, 2.4 + i * 0.7);
-    });
-    tl.to({}, { duration: 0.4 });
-
-    revealOnEnter('.sr-title > *', '.sr-title');
-    revealOnEnter('.ak, .ep', '.sr-play', { y: 60 });
-    revealOnEnter('.s-sarathi .step', '.s-sarathi .room-steps', { y: 60, rotateX: -20, transformOrigin: '50% 0%' });
-  }
-
-  // What's next: the shortlist rolls in like credits
-  headline('.s-next');
-  if (desktop) {
-    const tl = gsap.timeline({ scrollTrigger: { trigger: '.s-next', start: 'top top', end: '+=130%', pin: true, scrub: 1 } });
-    tl.from('.s-next .lede', { autoAlpha: 0, y: 20, duration: 0.4 }, 0.1)
-      .from('.target', { autoAlpha: 0, x: -40, stagger: 0.25, duration: 0.5 }, 0.35)
-      .from('.tracks > *', { autoAlpha: 0, y: 12, stagger: 0.1, duration: 0.3 })
-      .to({}, { duration: 0.5 });
-  } else {
-    revealOnEnter('.s-next .lede, .target, .tracks', '.s-next .split-copy');
-  }
-
-  // Credits
-  headline('.s-credits');
-  revealOnEnter('.contact-mail, .contact-links', '.contact');
-  revealOnEnter('.credit, .fin, .credits-roll .btn', '.credits-roll', { stagger: 0.12 });
-
-  // Depth: each scene rises out of the distance and flies past the camera on its way out.
-  // Created last so every pin above is already in place when these measure their scenes.
-  if (desktop) {
-    const wraps = gsap.utils.toArray('.scene-wrap');
-    wraps.slice(1).forEach((wrap) => {
-      const section = wrap.querySelector('.scene');
-      // A pinned inner element is moved by its pin, so its children become the planes instead
-      const planes = [...section.children]
-        .map((c) => (c.classList.contains('pin-spacer') ? c.firstElementChild : c))
-        .flatMap((c) => (c.matches('.craft-pin, .st-pin') ? [...c.children] : [c]))
-        .filter((c) => !c.matches('.shape-anchor, .bg-layer'));
-      gsap.fromTo(planes, { scale: 0.9, y: 80 }, { scale: 1, y: 0, ease: 'power2.out', scrollTrigger: { trigger: wrap, start: 'top bottom', end: 'top 25%', scrub: true } });
-      // Only full-screen pinned scenes fly away; long scenes would fade while still being read
-      if (section.matches('.s-record, .s-billlion, .s-next')) {
-        gsap.fromTo(
-          planes,
-          { scale: 1, autoAlpha: 1 },
-          {
-            scale: 1.12,
-            autoAlpha: 0,
-            ease: 'power1.in',
-            immediateRender: false,
-            scrollTrigger: { trigger: wrap, start: 'bottom bottom', end: 'bottom 15%', scrub: true },
-          }
-        );
-      }
-    });
-  }
-
-  return () => restore.forEach((fn) => fn());
-}
+const sceneMotion = (desktop) => ({
+  record: (el) => {
+    titles(el);
+    gsap.from('.scratch', { y: 80, rotation: (i) => (i ? 6 : -6), duration: 1, stagger: 0.12, ease: 'dev', scrollTrigger: { trigger: '.scratch-row', start: 'top 85%' } });
+  },
+  billlion: () => {
+    gsap.from('.sc-billlion .toy', { y: 70, duration: 1, stagger: 0.1, ease: 'dev', scrollTrigger: { trigger: '.bl-body', start: 'top 85%' } });
+  },
+  vigil: (el) => {
+    titles(el);
+    // Mayu lands and fans out; the promo tilts up off the floor
+    gsap
+      .timeline({ scrollTrigger: { trigger: '.vg-hero', start: 'top 70%' } })
+      .from('.vg-mayu', { y: 140, scale: 0.4, duration: 1, ease: 'elastic.out(1, 0.55)' })
+      .fromTo('.vg-mayu .pk-feather', { rotation: 0, svgOrigin: '60 76' }, { rotation: (i, f) => Number(f.dataset.a), svgOrigin: '60 76', duration: 0.9, stagger: 0.035, ease: 'back.out(2)' }, 0.25);
+    gsap.fromTo('.vg-promo', { rotationX: desktop ? 24 : 10, scale: 0.88 }, { rotationX: 0, scale: 1, ease: 'none', scrollTrigger: { trigger: '.vg-promo', start: 'top bottom', end: 'top 35%', scrub: true } });
+    gsap.from('.vg-toys .toy', { y: 80, rotation: (i) => (i ? 3 : -3), duration: 1, stagger: 0.12, ease: 'dev', scrollTrigger: { trigger: '.vg-toys', start: 'top 85%' } });
+    gsap.from('.vg-shot', { x: 120, duration: 1, stagger: 0.06, ease: 'dev', scrollTrigger: { trigger: '.vg-screens', start: 'top 90%' } });
+  },
+  craft: (el) => {
+    titles(el);
+    gsap.from('.term', { rotationY: desktop ? -16 : 0, y: 60, duration: 1.1, ease: 'dev', scrollTrigger: { trigger: '.craft-grid', start: 'top 85%' } });
+    gsap.from('.board .chip', { y: -40, opacity: 0, duration: 0.7, stagger: 0.025, ease: 'back.out(2.4)', scrollTrigger: { trigger: '.board', start: 'top 80%' } });
+  },
+  sarathi: (el) => {
+    titles(el);
+    gsap.fromTo('.sr-player', { y: 80, rotation: 2 }, { y: -30, rotation: 0, ease: 'none', scrollTrigger: { trigger: '.sr-top', start: 'top bottom', end: 'bottom top', scrub: true } });
+    gsap.from('.sr-deva', { yPercent: 60, opacity: 0, duration: 1.2, ease: 'dev', scrollTrigger: { trigger: '.sr-name', start: 'top 85%' } });
+    gsap.from('.sr-toys .toy', { y: 80, duration: 1, stagger: 0.12, ease: 'dev', scrollTrigger: { trigger: '.sr-toys', start: 'top 85%' } });
+  },
+  next: (el) => {
+    titles(el);
+    gsap.from('.targets li', { x: -40, opacity: 0, duration: 0.8, stagger: 0.1, ease: 'dev', scrollTrigger: { trigger: '.targets', start: 'top 85%' } });
+  },
+  credits: (el) => {
+    titles(el);
+    gsap.from('.roll > div', { y: 30, opacity: 0, duration: 0.8, stagger: 0.05, ease: 'dev', scrollTrigger: { trigger: '.roll', start: 'top 85%' } });
+  },
+});
 
 // --- App ---
 
 export default function App() {
   const rootRef = useRef(null);
-  const canvasRef = useRef(null);
-  const stageRef = useRef(null);
   const scoreRef = useRef(null);
   const lenisRef = useRef(null);
+  const progressRef = useRef(null);
   const enteredRef = useRef(false);
-  const sceneRef = useRef(0);
-  const fillRef = useRef(null);
-  const timeRef = useRef(null);
-
-  const [gateGone, setGateGone] = useState(false);
+  const [entered, setEntered] = useState(false);
   const [loaded, setLoaded] = useState(0);
   const [soundOn, setSoundOn] = useState(false);
-  const [scene, setScene] = useState(0);
-  const [ticks, setTicks] = useState([]);
+  const [scene, setScene] = useState('intro');
+  const [zoom, setZoom] = useState(null);
 
   if (!scoreRef.current) scoreRef.current = new AmbientScore();
 
-  const goScene = useCallback((i) => {
-    sceneRef.current = i;
-    setScene(i);
-    document.documentElement.style.setProperty('--accent', scenes[i].accent);
-    scoreRef.current.setScene(i);
-    if (enteredRef.current) stageRef.current?.setShape(i);
-  }, []);
-
-  // Tell the particle stage where each scene's shape should sit
-  const measure = useCallback(() => {
-    const stage = stageRef.current;
-    if (!stage || !rootRef.current) return;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const rects = Array.from(rootRef.current.querySelectorAll('.scene')).map((section) => {
-      const anchor = section.querySelector('.shape-anchor');
-      const s = section.getBoundingClientRect();
-      const a = anchor.getBoundingClientRect();
-      const opacity = parseFloat(getComputedStyle(anchor).getPropertyValue('--shape-opacity'));
-      return { x: a.left + a.width / 2, y: a.top - s.top + a.height / 2, w: a.width, h: a.height, opacity: Number.isNaN(opacity) ? 1 : opacity };
-    });
-    const g = Math.min(vw, vh) * 0.95;
-    rects[GATE_SHAPE] = { x: vw / 2, y: vh / 2, w: g, h: g, opacity: 0.9 };
-    stage.setLayouts(rects);
-  }, []);
-
-  // Preload the heavy images and fonts behind the gate's loading bar
+  // Preload the first images and the fonts behind the loader
   useEffect(() => {
-    const urls = [sarathi.image, vigil.poster, ...billlion.shots.map((s) => s.src)];
+    const urls = [billlion.shots[0].src, vigil.poster, sarathi.image];
     const total = urls.length + 1;
     let done = 0;
     let alive = true;
@@ -1094,172 +1095,170 @@ export default function App() {
       done += 1;
       if (alive) setLoaded(done / total);
     };
-    const images = urls.map((url) => {
+    urls.forEach((u) => {
       const img = new Image();
       img.onload = tick;
       img.onerror = tick;
-      img.src = url;
-      return img;
+      img.src = u;
     });
-    // Fonts get a short cap: some browsers keep document.fonts.ready pending while text is still being laid out
-    const fontCap = new Promise((resolve) => setTimeout(resolve, 2500));
-    Promise.race([document.fonts ? document.fonts.ready : Promise.resolve(), fontCap]).then(tick);
-    const fallback = setTimeout(() => {
-      if (alive) setLoaded(1);
-    }, 6000);
+    Promise.race([document.fonts ? document.fonts.ready : Promise.resolve(), new Promise((r) => setTimeout(r, 2500))]).then(tick);
+    const cap = setTimeout(() => alive && setLoaded(1), 5000);
     return () => {
       alive = false;
-      clearTimeout(fallback);
-      images.forEach((img) => {
-        img.onload = null;
-        img.onerror = null;
-      });
+      clearTimeout(cap);
     };
   }, []);
 
-  // Particle stage, smooth scrolling and audio lifecycle
+  // Smooth scroll, jumps between scenes, the score
   useEffect(() => {
     const root = document.documentElement;
     const score = scoreRef.current;
     root.classList.add('is-locked');
     if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual';
     window.scrollTo(0, 0);
-    const reduced = prefersReducedMotion();
-
-    try {
-      stageRef.current = new ParticleStage(canvasRef.current, {
-        colors: [...scenes.map((s) => s.accent), '#d8d0ff'],
-        reducedMotion: reduced,
-      });
-      measure();
-    } catch (err) {
-      root.classList.add('no-webgl');
-    }
-
     let lenis = null;
-    const raf = (time) => lenis.raf(time * 1000);
-    if (!reduced) {
-      lenis = new Lenis({ duration: 1.2, smoothWheel: true });
+    const raf = (t) => lenis.raf(t * 1000);
+    if (!prefersReducedMotion()) {
+      lenis = new Lenis({ duration: 1.15, smoothWheel: true });
       lenis.stop();
-      lenis.on('scroll', (l) => {
-        ScrollTrigger.update();
-        stageRef.current?.setVelocity(l.velocity);
-      });
+      lenis.on('scroll', ScrollTrigger.update);
       gsap.ticker.add(raf);
       gsap.ticker.lagSmoothing(0);
       lenisRef.current = lenis;
     }
-
-    const onVisibility = () => score.setHidden(document.hidden);
-    document.addEventListener('visibilitychange', onVisibility);
     const onGoto = (e) => {
       const el = document.getElementById(e.detail);
       if (!el) return;
-      if (lenisRef.current) lenisRef.current.scrollTo(el, { duration: 1.8 });
+      if (lenisRef.current) lenisRef.current.scrollTo(el, { duration: 1.6, easing: (t) => 1 - Math.pow(1 - t, 4) });
       else el.scrollIntoView({ behavior: 'smooth' });
     };
+    const onVis = () => score.setHidden(document.hidden);
     window.addEventListener('webume:goto', onGoto);
-
+    document.addEventListener('visibilitychange', onVis);
     return () => {
-      document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('webume:goto', onGoto);
+      document.removeEventListener('visibilitychange', onVis);
       if (lenis) {
         gsap.ticker.remove(raf);
         lenis.destroy();
       }
       lenisRef.current = null;
-      stageRef.current?.dispose();
-      stageRef.current = null;
       score.stop();
-      root.classList.remove('is-locked', 'no-webgl');
+      root.classList.remove('is-locked');
     };
-  }, [measure]);
+  }, []);
 
-  // All scroll-driven animation
-  useLayoutEffect(() => {
-    const mm = gsap.matchMedia();
-    const ctx = gsap.context(() => {
-      mm.add({ desktop: '(min-width: 900px)', motion: '(prefers-reduced-motion: no-preference)' }, (c) => {
-        if (!c.conditions.motion) return undefined;
-        return buildTimelines(c.conditions.desktop);
-      });
-
-      // Created after the pins, and refreshed last, so positions include pin spacing
-      const wraps = gsap.utils.toArray('.scene-wrap');
-      wraps.forEach((wrap, i) =>
-        ScrollTrigger.create({
-          trigger: wrap,
-          start: 'top 55%',
-          end: 'bottom 55%',
-          refreshPriority: -1,
-          onToggle: (self) => self.isActive && goScene(i),
-        })
-      );
-      gsap.utils.toArray('[data-dim]').forEach((el) =>
-        ScrollTrigger.create({
-          trigger: el,
-          start: 'top 65%',
-          end: 'bottom 35%',
-          refreshPriority: -1,
-          onToggle: (self) => stageRef.current?.setDim(self.isActive ? 0.2 : 1),
-        })
-      );
-      ScrollTrigger.create({
-        start: 0,
-        end: 'max',
-        refreshPriority: -2,
-        onUpdate: (self) => {
-          stageRef.current?.setProgress(self.progress);
-          if (fillRef.current) fillRef.current.style.transform = `scaleX(${self.progress})`;
-          if (timeRef.current) timeRef.current.textContent = formatTime(self.progress * RUNTIME);
-        },
-      });
-
-      const onRefresh = () => {
-        measure();
-        const max = ScrollTrigger.maxScroll(window) || 1;
-        const vh = window.innerHeight;
-        setTicks(
-          wraps.map((wrap) => {
-            const top = wrap.getBoundingClientRect().top + window.scrollY;
-            const into = Math.min(0.45 * Math.max(0, wrap.offsetHeight - vh), vh * 0.9);
-            return { pos: Math.min(1, Math.max(0, top / max)), top: Math.min(max, top + into) };
+  // Scroll choreography is built in short slices once fonts are in, so no single task blocks the page
+  useEffect(() => {
+    const ctx = gsap.context(() => {}, rootRef);
+    const desktop = window.matchMedia('(min-width: 900px)').matches;
+    let alive = true;
+    let lazyIO = null;
+    const io = new IntersectionObserver((es) => es.forEach((e) => e.target.classList.toggle('is-off', !e.isIntersecting)));
+    document.querySelectorAll('.marquee').forEach((m) => io.observe(m));
+    (async () => {
+      await Promise.race([document.fonts ? document.fonts.ready : Promise.resolve(), new Promise((r) => setTimeout(r, 2500))]);
+      if (!prefersReducedMotion()) {
+        for (const step of pinnedMotion(desktop)) {
+          await yieldToMain();
+          if (!alive) return;
+          ctx.add(step);
+        }
+        const lazy = sceneMotion(desktop);
+        lazyIO = new IntersectionObserver(
+          (es) =>
+            es.forEach((e) => {
+              const run = e.isIntersecting && lazy[e.target.dataset.scene];
+              if (!run) return;
+              lazyIO.unobserve(e.target);
+              delete lazy[e.target.dataset.scene];
+              ctx.add(() => run(e.target));
+            }),
+          { rootMargin: '120% 0px' }
+        );
+        document.querySelectorAll('[data-scene]').forEach((el) => lazyIO.observe(el));
+      }
+      await yieldToMain();
+      if (!alive) return;
+      ctx.add(() => {
+        // Which scene is on screen sets the light, the nav label and the score's chord
+        gsap.utils.toArray('[data-scene]').forEach((el, i) =>
+          ScrollTrigger.create({
+            trigger: el,
+            start: 'top 55%',
+            end: 'bottom 55%',
+            onToggle: (self) => {
+              if (!self.isActive) return;
+              const id = el.dataset.scene;
+              setScene(id);
+              document.documentElement.style.setProperty('--light', LIGHT[id]);
+              scoreRef.current.setScene(i);
+            },
           })
         );
-      };
-      ScrollTrigger.addEventListener('refresh', onRefresh);
-      onRefresh();
-      return () => ScrollTrigger.removeEventListener('refresh', onRefresh);
-    }, rootRef);
-
-    // Web fonts change line lengths, so re-measure once they land
-    document.fonts?.ready.then(() => ScrollTrigger.refresh());
-
+        ScrollTrigger.create({
+          start: 0,
+          end: 'max',
+          onUpdate: (self) => {
+            if (progressRef.current) progressRef.current.style.transform = `scaleX(${self.progress})`;
+          },
+        });
+      });
+      ScrollTrigger.refresh();
+    })();
+    // Crossing the desktop breakpoint rebuilds the choreography for the new layout
+    const mq = window.matchMedia('(min-width: 900px)');
+    const onBreak = () => window.location.reload();
+    mq.addEventListener?.('change', onBreak);
     return () => {
-      mm.revert();
+      alive = false;
+      lazyIO?.disconnect();
+      mq.removeEventListener?.('change', onBreak);
+      io.disconnect();
       ctx.revert();
     };
-  }, [goScene, measure]);
+  }, []);
 
-  // Always enters with the score playing; the HUD button can mute it
-  const enter = () => {
-    if (enteredRef.current) return;
-    enteredRef.current = true;
-    scoreRef.current.start();
-    setSoundOn(true);
-    document.documentElement.classList.remove('is-locked');
-    lenisRef.current?.start();
-    stageRef.current?.setShape(sceneRef.current);
-
-    const reduced = prefersReducedMotion();
-    const name = SplitText.create('.hero-title .serif', { type: 'chars' });
+  const playIntro = useCallback(() => {
+    if (prefersReducedMotion()) return;
     gsap
       .timeline()
-      .to('.gate', { autoAlpha: 0, scale: reduced ? 1 : 1.08, duration: 1.1, ease: 'power2.inOut', onComplete: () => setGateGone(true) })
-      .to('.letterbox', { scaleY: 0, duration: 1.6, ease: 'expo.inOut' }, 0.1)
-      .fromTo('.hero-copy > *, .hero-cue > *', { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 1.4, stagger: 0.12, ease: 'expo.out' }, 0.7)
-      .from(name.chars, { yPercent: 80, rotateX: -90, autoAlpha: 0, stagger: 0.05, duration: 1.4, ease: 'expo.out' }, 0.75)
-      .fromTo('.hud', { autoAlpha: 0 }, { autoAlpha: 1, duration: 1.2 }, 1);
+      .fromTo('.hl', { yPercent: 115 }, { yPercent: 0, duration: 1.3, stagger: 0.06, ease: 'dev' }, 0)
+      .fromTo('.hero-hi, .hero-foot', { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 1, stagger: 0.12, ease: 'dev' }, 0.35)
+      .fromTo('.hero-back span', { opacity: 0 }, { opacity: 1, duration: 1.6 }, 0.2)
+      .fromTo('.sticker', { scale: 0, rotation: 0 }, { scale: 1, rotation: (i, el) => parseFloat(el.style.getPropertyValue('--r')), duration: 0.9, stagger: 0.08, ease: 'elastic.out(1, 0.5)' }, 0.7)
+      .fromTo('.hero-hint, .marquee', { opacity: 0 }, { opacity: 1, duration: 1 }, 1.2);
+  }, []);
+
+  const enter = (withSound) => {
+    if (enteredRef.current) return;
+    enteredRef.current = true;
+    if (withSound) {
+      scoreRef.current.start();
+      setSoundOn(true);
+    }
+    buzz(15);
+    document.documentElement.classList.add('is-entering');
+    const finish = () => {
+      setEntered(true);
+      document.documentElement.classList.remove('is-locked');
+      lenisRef.current?.start();
+      ScrollTrigger.refresh();
+    };
+    // The loader's mark flies into the nav, then the curtain lifts
+    const from = document.querySelector('.ld-mark');
+    const to = document.querySelector('.nav-mark');
+    if (prefersReducedMotion() || !from || !to) {
+      gsap.timeline({ onComplete: finish }).to('.ld', { opacity: 0, duration: 0.3 }).set('.nav', { opacity: 1 });
+      return;
+    }
+    gsap
+      .timeline({ onComplete: finish })
+      .add(Flip.fit(from, to, { duration: 0.9, ease: 'devInOut' }), 0)
+      .to('.ld > :not(.ld-mark)', { opacity: 0, y: -20, duration: 0.4, stagger: 0.04 }, 0)
+      .to('.ld', { clipPath: 'inset(0% 0% 100% 0%)', duration: 0.9, ease: 'devInOut' }, 0.6)
+      .to('.nav', { opacity: 1, duration: 0.5 }, 0.8)
+      .call(playIntro, [], 0.75);
   };
 
   const toggleSound = () => {
@@ -1274,30 +1273,22 @@ export default function App() {
     }
   };
 
-  const jump = (i) => {
-    const target = ticks[i];
-    if (!target) return;
-    if (lenisRef.current) lenisRef.current.scrollTo(i === 0 ? 0 : target.top, { duration: 1.8 });
-    else window.scrollTo({ top: i === 0 ? 0 : target.top });
-  };
   const replay = useCallback(() => {
-    if (lenisRef.current) lenisRef.current.scrollTo(0, { duration: 1.8 });
-    else window.scrollTo({ top: 0 });
-  }, []);
+    if (lenisRef.current) lenisRef.current.scrollTo(0, { duration: 2, onComplete: playIntro });
+    else {
+      window.scrollTo({ top: 0 });
+      playIntro();
+    }
+  }, [playIntro]);
 
   return (
-    <div ref={rootRef} className="site">
-      <canvas ref={canvasRef} className="stage" aria-hidden="true" />
-      <div className="letterbox letterbox-top" aria-hidden="true" />
-      <div className="letterbox letterbox-bottom" aria-hidden="true" />
-
-      <Hud soundOn={soundOn} onToggleSound={toggleSound} scene={scene} ticks={ticks} onJump={jump} fillRef={fillRef} timeRef={timeRef} />
-      <SceneToast scene={scene} live={gateGone} />
-
-      <Film onReplay={replay} />
-
-      {!gateGone && <Gate progress={loaded} onEnter={enter} />}
-      <PointerFX />
+    <div ref={rootRef} className={`site${entered ? ' is-in' : ''}`}>
+      <div className="light" aria-hidden="true" />
+      <Nav scene={scene} soundOn={soundOn} onSound={toggleSound} progressRef={progressRef} />
+      <Page onZoom={setZoom} onReplay={replay} />
+      {zoom && <Lightbox shot={zoom} onClose={() => setZoom(null)} />}
+      {!entered && <Loader progress={loaded} onEnter={enter} />}
+      <Cursor />
     </div>
   );
 }

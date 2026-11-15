@@ -1,20 +1,45 @@
 import { useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
-import { Draggable } from 'gsap/Draggable';
-import { InertiaPlugin } from 'gsap/InertiaPlugin';
+import ThrowDeck from '../components/ThrowDeck';
 import { sarathi } from '../content';
-import { Eyebrow, Line, pad, prefersReducedMotion, spotlight } from '../ui';
-
-gsap.registerPlugin(Draggable, InertiaPlugin);
+import { buzz, pad, prefersReducedMotion } from '../ui';
 
 const avatar = (who) => `${process.env.PUBLIC_URL}/images/sarathi/${who}.webp`;
+
+// The key art in a player frame at its native size, with subtitles that change on a beat
+function Player() {
+  const [line, setLine] = useState(0);
+  const ref = useRef(null);
+  useEffect(() => {
+    let id = null;
+    const io = new IntersectionObserver(([e]) => {
+      clearInterval(id);
+      if (e.isIntersecting && !prefersReducedMotion()) id = setInterval(() => setLine((l) => (l + 1) % sarathi.captions.length), 3400);
+    });
+    io.observe(ref.current);
+    return () => {
+      io.disconnect();
+      clearInterval(id);
+    };
+  }, []);
+  const [who, text] = sarathi.captions[line];
+  return (
+    <figure className="sr-player" ref={ref}>
+      <img src={sarathi.image} alt={sarathi.imageAlt} width="1024" height="572" loading="lazy" />
+      <span className="sr-status">Episode 1 · in scripting</span>
+      <figcaption className="sr-sub" key={line} aria-live="off">
+        <b>{who}</b> {text}
+      </figcaption>
+    </figure>
+  );
+}
 
 // Pick a problem; Arjun asks it, Krishna ji types the updesh and the verse it comes from
 function AskKrishna() {
   const [active, setActive] = useState(null);
   const [typed, setTyped] = useState('');
-  const [phase, setPhase] = useState('idle'); // idle → thinking → typing → done
-  const logRef = useRef(null);
+  const [phase, setPhase] = useState('idle');
+  const verseRef = useRef(null);
 
   useEffect(() => {
     if (active === null) return undefined;
@@ -34,41 +59,50 @@ function AskKrishna() {
         const step = () => {
           n += 2;
           setTyped(answer.slice(0, n));
-          if (n < answer.length) timers.push(setTimeout(step, 22));
+          if (n < answer.length) timers.push(setTimeout(step, 20));
           else setPhase('done');
         };
         step();
-      }, 900)
+      }, 850)
     );
     return () => timers.forEach(clearTimeout);
   }, [active]);
 
   useEffect(() => {
-    if (phase === 'done' && logRef.current) {
-      gsap.fromTo(logRef.current.querySelector('.ak-verse'), { autoAlpha: 0, y: 16, scale: 0.96 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.6, ease: 'back.out(1.6)' });
+    if (phase === 'done' && verseRef.current) {
+      gsap.fromTo(verseRef.current, { autoAlpha: 0, y: 14, scale: 0.94 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.7, ease: 'elastic.out(1, 0.6)' });
+      buzz(14);
     }
   }, [phase]);
 
   const p = active === null ? null : sarathi.problems[active];
   return (
-    <div className="ak" onPointerMove={spotlight}>
-      <div className="ak-head">
-        <span className="lab-tag">Try it</span>
+    <div className="toy toy-ask">
+      <div className="toy-copy">
         <h4>Ask Krishna ji.</h4>
-        <p>Pick your problem. Get updesh, Gen Z edition, with the verse it comes from.</p>
+        <p>Pick a problem. The answer comes with the verse it is drawn from.</p>
       </div>
       <div className="ak-chips" role="group" aria-label="Problems">
         {sarathi.problems.map((x, i) => (
-          <button key={x.chip} type="button" className={`ak-chip${i === active ? ' is-on' : ''}`} onClick={() => setActive(i)} aria-pressed={i === active}>
+          <button
+            key={x.chip}
+            type="button"
+            className={`ak-chip${i === active ? ' is-on' : ''}`}
+            onClick={() => {
+              setActive(i);
+              buzz(8);
+            }}
+            aria-pressed={i === active}
+          >
             {x.chip}
           </button>
         ))}
       </div>
-      <div className="ak-log" ref={logRef} aria-live="polite">
+      <div className="ak-log" aria-live="polite">
         {!p && (
           <div className="ak-empty">
-            <img src={avatar('krishna')} alt="" width="64" height="64" />
-            <p>“Bolo Arjun, kya scene hai?”</p>
+            <img src={avatar('krishna')} alt="" width="56" height="56" />
+            <p>Bolo Arjun, kya scene hai?</p>
           </div>
         )}
         {p && (
@@ -96,7 +130,7 @@ function AskKrishna() {
               </div>
             </div>
             {phase === 'done' && (
-              <div className="ak-verse">
+              <div className="ak-verse" ref={verseRef}>
                 <span lang="sa">{p.verse}</span>
                 <em>{p.ref}</em>
               </div>
@@ -108,160 +142,61 @@ function AskKrishna() {
   );
 }
 
-// A deck of episode cards: drag and throw the top one, it goes to the back
-function EpisodeDeck() {
-  const deckRef = useRef(null);
-  const [order, setOrder] = useState(() => sarathi.episodes.map((_, i) => i));
-  const orderRef = useRef(order);
-  orderRef.current = order;
-
-  const sendBack = (dir = 1) => {
-    const top = deckRef.current.querySelector('.ep-card.is-top');
-    if (!top) return;
-    gsap.to(top, {
-      x: dir * window.innerWidth * 0.6,
-      rotate: dir * 30,
-      autoAlpha: 0,
-      duration: 0.45,
-      ease: 'power2.in',
-      onComplete: () => {
-        gsap.set(top, { x: 0, y: 0, rotate: 0, autoAlpha: 1 });
-        setOrder((o) => o.slice(1).concat(o[0]));
-      },
-    });
-  };
-  const sendBackRef = useRef(sendBack);
-  sendBackRef.current = sendBack;
-
-  useEffect(() => {
-    const top = deckRef.current.querySelector('.ep-card.is-top');
-    if (!top) return undefined;
-    const [d] = Draggable.create(top, {
-      type: 'x,y',
-      inertia: true,
-      onDrag() {
-        gsap.set(this.target, { rotate: this.x / 12 });
-      },
-      onDragEnd() {
-        const fling = Math.abs(this.x) > 110 || Math.abs(InertiaPlugin.getVelocity(this.target, 'x')) > 700;
-        if (fling) {
-          this.tween && this.tween.kill();
-          sendBackRef.current(this.x >= 0 ? 1 : -1);
-        } else {
-          gsap.to(this.target, { x: 0, y: 0, rotate: 0, duration: 0.6, ease: 'elastic.out(1, 0.5)' });
-        }
-      },
-    });
-    return () => d.kill();
-  }, [order]);
-
+export default function SarathiScene() {
   return (
-    <div className="ep">
-      <div className="ep-deck" ref={deckRef}>
-        {order
-          .slice()
-          .reverse()
-          .map((idx) => {
-            const e = sarathi.episodes[idx];
-            const depth = orderRef.current.indexOf(idx);
-            return (
-              <article
-                key={e.no}
-                className={`ep-card${depth === 0 ? ' is-top' : ''}`}
-                style={{ '--d': depth, zIndex: 10 - depth }}
-                aria-hidden={depth !== 0}
-              >
-                <div className="ep-top">
-                  <span>EP {e.no}</span>
-                  <span className="ep-status">Scripting</span>
-                </div>
-                <h4>{e.title}</h4>
-                <p>{e.problem}</p>
-                <div className="ep-foot">
-                  <em>Gita {e.ref}</em>
-                  <span>
-                    {pad(idx + 1)} / {pad(sarathi.episodes.length)}
-                  </span>
-                </div>
-              </article>
-            );
-          })}
-      </div>
-      <div className="ep-controls">
-        <button type="button" className="btn" onClick={() => sendBack(-1)} aria-label="Previous episode">
-          ←
-        </button>
-        <span>Throw the card · {sarathi.episodes.length} episodes planned</span>
-        <button type="button" className="btn" onClick={() => sendBack(1)} aria-label="Next episode">
-          →
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export default function SarathiScene({ index }) {
-  return (
-    <section className="scene s-sarathi" id="sarathi">
-      <div className="st-pin">
-        <div className="shape-anchor st-anchor" />
-        <div className="st-intro">
-          <Eyebrow index={index}>The series</Eyebrow>
-          <h2 className="display">
-            <Line>Some updesh</Line>
-            <Line serif>deserves a screen.</Line>
-          </h2>
-        </div>
-        <figure className="st-frame">
-          <img src={sarathi.image} alt={sarathi.imageAlt} />
-          <div className="st-bars" aria-hidden="true">
-            <i />
-            <i />
-          </div>
-          <div className="st-tag">
-            <span>Now scripting</span>
-            <strong>
-              {sarathi.title} <em lang="hi">{sarathi.devanagari}</em>
-            </strong>
-          </div>
-          <figcaption className="st-captions">
-            {sarathi.captions.map(([who, text]) => (
-              <span className="st-cap" key={text}>
-                <b>{who}:</b> {text}
+    <section className="scene sc-sarathi" id="sarathi" data-scene="sarathi">
+      <div className="wrap">
+        <div className="sr-top">
+          <div className="sr-title">
+            <p className="kicker">A Minecraft-animated series</p>
+            <h2 className="sr-name" aria-label={`${sarathi.title}, ${sarathi.devanagari}`}>
+              <span className="mask">
+                <span className="mask-in">{sarathi.title}</span>
               </span>
-            ))}
-          </figcaption>
-        </figure>
-      </div>
-
-      <div className="sr-body" data-dim>
-        <div className="sr-title">
-          <p className="sr-kicker">A Minecraft-animated series</p>
-          <h3 className="sr-name">
-            {sarathi.title}
-            <span lang="hi">{sarathi.devanagari}</span>
-          </h3>
-          <p className="sr-tagline serif">{sarathi.tagline}</p>
-          <p className="lede">{sarathi.pitch}</p>
+              <span className="sr-deva" lang="hi" aria-hidden="true">
+                {sarathi.devanagari}
+              </span>
+            </h2>
+            <p className="voice">{sarathi.tagline}</p>
+            <p className="lede">{sarathi.pitch}</p>
+          </div>
+          <Player />
         </div>
-        <div className="sr-play">
+
+        <div className="sr-toys">
           <AskKrishna />
-          <EpisodeDeck />
+          <div className="toy toy-eps">
+            <div className="toy-copy">
+              <h4>Six episodes, planned.</h4>
+              <p>Throw a card to see the next one.</p>
+            </div>
+            <ThrowDeck
+              className="ep-deck"
+              items={sarathi.episodes}
+              hint="throw it"
+              render={(e) => (
+                <article className="ep-card" data-cursor="throw">
+                  <span className="ep-no">Ep {e.no}</span>
+                  <h5>{e.title}</h5>
+                  <p>{e.problem}</p>
+                  <em>Gita {e.ref}</em>
+                </article>
+              )}
+            />
+          </div>
         </div>
 
-        <ol className="room-steps">
+        <ol className="steps">
           {sarathi.pipeline.map((s, i) => (
-            <li className="step" key={s.title} onPointerMove={spotlight}>
-              <div className="step-top">
-                <span>{pad(i + 1)}</span>
-                <span className={`status status-${s.status}`}>{s.status === 'done' ? 'Done' : s.status === 'now' ? 'In progress' : 'Up next'}</span>
-              </div>
-              <h4>{s.title}</h4>
+            <li key={s.title} className={`step step-${s.status}`}>
+              <span className="step-no">{pad(i + 1)}</span>
+              <h5>{s.title}</h5>
               <p>{s.body}</p>
+              <span className="step-status">{s.status === 'done' ? 'Done' : s.status === 'now' ? 'Working on it' : 'Up next'}</span>
             </li>
           ))}
         </ol>
-        <p className="st-disclaimer">{sarathi.disclaimer}</p>
+        <p className="fine">{sarathi.disclaimer}</p>
       </div>
     </section>
   );

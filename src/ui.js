@@ -1,41 +1,54 @@
-// Small pieces shared by every scene
+import gsap from 'gsap';
+import { Physics2DPlugin } from 'gsap/Physics2DPlugin';
+
+gsap.registerPlugin(Physics2DPlugin);
+
+// Small pieces shared by every section
 
 export const pad = (n) => String(n).padStart(2, '0');
 export const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-export function Line({ children, serif = false }) {
-  return (
-    <span className="mask">
-      <span className={serif ? 'serif' : undefined}>{children}</span>
-    </span>
-  );
-}
+export const coarsePointer = () => window.matchMedia('(pointer: coarse)').matches;
 
 export function Arrow() {
   return (
-    <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M7 17 17 7M8 7h9v9" />
     </svg>
   );
 }
 
-export function Eyebrow({ index, children }) {
+// A headline whose lines rise out of masks when its scene arrives
+export function Title({ lines, as: Tag = 'h3', className = '' }) {
   return (
-    <p className="eyebrow">
-      <span>Scene {pad(index)}</span>
-      <span>{children}</span>
-    </p>
+    <Tag className={`title ${className}`}>
+      {lines.map((l, i) => (
+        <span className="mask" key={i}>
+          <span className="mask-in">{l}</span>
+        </span>
+      ))}
+    </Tag>
   );
 }
 
-// A giant outlined word drifting behind a scene; the outer layer follows the pointer
-export function BgWord({ children, depth = 24 }) {
-  return (
-    <div className="bg-layer layer" data-depth={depth} aria-hidden="true">
-      <span className="bg-word">{children}</span>
-    </div>
-  );
+// Haptic tick on phones; silent everywhere else
+export const buzz = (pattern = 10) => {
+  try {
+    if (coarsePointer()) navigator.vibrate?.(pattern);
+  } catch (e) {
+    // not supported
+  }
+};
+
+// Run work when the main thread is free, so setup never blocks a frame
+export function idle(fn, timeout = 1500) {
+  if ('requestIdleCallback' in window) {
+    const id = window.requestIdleCallback(fn, { timeout });
+    return () => window.cancelIdleCallback(id);
+  }
+  const id = setTimeout(fn, 60);
+  return () => clearTimeout(id);
 }
+export const yieldToMain = () => new Promise((r) => setTimeout(r, 0));
 
 // Cards light up where the pointer is
 export const spotlight = (e) => {
@@ -49,15 +62,26 @@ export const pick = (list, not) => {
   return options[Math.floor(Math.random() * options.length)];
 };
 
-// Short sound effects, kept quiet and only ever played in answer to a click
-const cache = {};
-export function playSfx(src, volume = 0.35) {
-  try {
-    const a = cache[src] || (cache[src] = new Audio(src));
-    a.volume = volume;
-    a.currentTime = 0;
-    a.play().catch(() => {});
-  } catch (e) {
-    // audio is optional
+// Confetti from a point on screen; the layer only exists while pieces are flying
+const CONFETTI = ['#c8ff3d', '#ff5fa2', '#f2a541', '#4f8dff', '#ffffff', '#ff8a3d'];
+export function confetti(x = window.innerWidth / 2, y = window.innerHeight / 2, count = 60) {
+  if (prefersReducedMotion()) return;
+  const layer = document.createElement('div');
+  layer.className = 'confetti';
+  document.body.appendChild(layer);
+  for (let i = 0; i < count; i++) {
+    const p = document.createElement('i');
+    p.style.background = CONFETTI[i % CONFETTI.length];
+    p.style.left = `${x}px`;
+    p.style.top = `${y}px`;
+    layer.appendChild(p);
+    gsap.to(p, {
+      duration: 1.6 + Math.random(),
+      physics2D: { velocity: 300 + Math.random() * 500, angle: -90 + (Math.random() - 0.5) * 140, gravity: 900 },
+      rotation: Math.random() * 720,
+      opacity: 0,
+      ease: 'power1.in',
+    });
   }
+  setTimeout(() => layer.remove(), 2800);
 }

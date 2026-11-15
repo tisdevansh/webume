@@ -78,8 +78,10 @@ export default function Peacock({ mood = 'happy', size = 120, className = '' }) 
               {EYES.map((x) => (
                 <g key={x}>
                   <circle cx={x} cy="51" r={eyeR} fill="#fff" />
-                  <circle className="pk-pupil" cx={x + (x < 60 ? 0.8 : -0.8)} cy="51.4" r={pupilR} fill="#0F172A" />
-                  <circle cx={x + (x < 60 ? 2 : 0.4)} cy="49.8" r="1.3" fill="#fff" />
+                  <g className="pk-look">
+                    <circle cx={x + (x < 60 ? 0.8 : -0.8)} cy="51.4" r={pupilR} fill="#0F172A" />
+                    <circle cx={x + (x < 60 ? 2 : 0.4)} cy="49.8" r="1.3" fill="#fff" />
+                  </g>
                 </g>
               ))}
             </g>
