@@ -145,6 +145,23 @@ export const vigil = {
     { src: vigilImg('stats'), label: 'Stats' },
   ],
   demoNote: 'Screens from Vigil running with a demo student.',
+  ribbon: {
+    lines: ["SOMEONE'S", 'WATCHING'],
+    caption: 'Every screen of Vigil, in one pass',
+    items: [
+      { title: 'Promo', short: 'promo', src: `${process.env.PUBLIC_URL}/media/vigil-promo-poster.jpg`, video: `${process.env.PUBLIC_URL}/media/vigil-promo.mp4` },
+      ...[
+        ['home', 'Today', 'today'],
+        ['focus', 'Start a session', 'focus'],
+        ['plan', 'Daily plan', 'plan'],
+        ['stats', 'Stats', 'stats'],
+        ['session', 'Focus session', 'session'],
+        ['shield', 'Rules and blocks', 'rules'],
+        ['practice', 'Practice', 'practice'],
+        ['ended', 'Session ended', 'ended'],
+      ].map(([f, title, short]) => ({ title, short, src: vigilImg(`desk-${f}`) })),
+    ],
+  },
 };
 
 const sarathiImg = (name) => `${process.env.PUBLIC_URL}/images/sarathi/${name}.webp`;

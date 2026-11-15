@@ -1,41 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
-import { Draggable } from 'gsap/Draggable';
-import { InertiaPlugin } from 'gsap/InertiaPlugin';
 import Peacock from '../components/Peacock';
+import DotMayu from '../components/DotMayu';
+import Ribbon from '../components/Ribbon';
 import { profile, vigil } from '../content';
-import { Arrow, buzz, coarsePointer, idle, pad, pick, prefersReducedMotion, Title } from '../ui';
+import { Arrow, buzz, coarsePointer, pad, pick, prefersReducedMotion, Title } from '../ui';
 
-gsap.registerPlugin(Draggable, InertiaPlugin);
 
 const fmt = (s) => `${pad(Math.floor(s / 60))}:${pad(Math.floor(s % 60))}`;
-
-// Mayu's pupils follow the pointer (or the last touch) around the page
-function WatchingMayu() {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (prefersReducedMotion()) return undefined;
-    const el = ref.current;
-    const looks = [...el.querySelectorAll('.pk-look')];
-    const setters = looks.map((l) => [gsap.quickTo(l, 'x', { duration: 0.35, ease: 'power3' }), gsap.quickTo(l, 'y', { duration: 0.35, ease: 'power3' })]);
-    const onMove = (e) => {
-      const r = el.getBoundingClientRect();
-      const a = Math.atan2(e.clientY - (r.top + r.height * 0.42), e.clientX - (r.left + r.width / 2));
-      const d = Math.min(1, Math.hypot(e.clientX - r.left, e.clientY - r.top) / 300);
-      setters.forEach(([sx, sy]) => {
-        sx(Math.cos(a) * 2.4 * d);
-        sy(Math.sin(a) * 2.4 * d);
-      });
-    };
-    window.addEventListener('pointermove', onMove, { passive: true });
-    return () => window.removeEventListener('pointermove', onMove);
-  }, []);
-  return (
-    <div className="vg-mayu" ref={ref}>
-      <Peacock mood="happy" size={260} />
-    </div>
-  );
-}
 
 // Plays muted only while on screen; a click restarts it with sound
 function Promo() {
@@ -223,41 +195,6 @@ function DeskCheck() {
   );
 }
 
-// Real screens in phone frames; drag or flick the strip
-function Screens() {
-  const trackRef = useRef(null);
-  const wrapRef = useRef(null);
-  useEffect(() => {
-    let d = null;
-    const cancel = idle(() => {
-      [d] = Draggable.create(trackRef.current, {
-      type: 'x',
-      inertia: true,
-      bounds: wrapRef.current,
-      edgeResistance: 0.85,
-      allowNativeTouchScrolling: true,
-      onPress: () => buzz(8),
-      });
-    });
-    return () => {
-      cancel();
-      d?.kill();
-    };
-  }, []);
-  return (
-    <div className="vg-screens" ref={wrapRef} data-cursor="drag">
-      <div className="vg-track" ref={trackRef}>
-        {vigil.screens.map((s) => (
-          <figure className="vg-shot" key={s.label}>
-            <img src={s.src} alt={`Vigil: ${s.label}`} loading="lazy" draggable="false" width="780" height="1688" />
-            <figcaption>{s.label}</figcaption>
-          </figure>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export default function VigilScene() {
   return (
     <section className="scene sc-vigil" id="vigil" data-scene="vigil">
@@ -278,7 +215,9 @@ export default function VigilScene() {
               ))}
             </ul>
           </div>
-          <WatchingMayu />
+          <div className="vg-mayu">
+            <DotMayu />
+          </div>
         </div>
 
         <Promo />
@@ -297,10 +236,7 @@ export default function VigilScene() {
           ))}
         </ul>
 
-        <div className="vg-gallery">
-          <Title className="h3" lines={['The real app, with a demo student.']} />
-          <Screens />
-        </div>
+        <Ribbon items={vigil.ribbon.items} lines={vigil.ribbon.lines} caption={vigil.ribbon.caption} />
 
         <div className="vg-cta">
           <p>
