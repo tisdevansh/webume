@@ -5,60 +5,19 @@ import { SplitText } from 'gsap/SplitText';
 import Lenis from 'lenis';
 import { AmbientScore } from './engine/ambient';
 import { GATE_SHAPE, ParticleStage } from './engine/particles';
-import { billlion, credits, next, profile, record, scenes, skillTree, stories, terminal } from './content';
+import { billlion, credits, next, profile, record, sarathi, scenes, skillTree, terminal, vigil } from './content';
+import VigilScene from './scenes/Vigil';
+import SarathiScene from './scenes/Sarathi';
+import { Arrow, BgWord, Eyebrow, Line, pad, prefersReducedMotion, spotlight } from './ui';
 import './site.css';
+import './scenes.css';
 
 gsap.registerPlugin(ScrollTrigger, SplitText);
 
 // Length shown on the timeline. Purely for the "watching a film" feel.
 const RUNTIME = 210;
 
-const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-const pad = (n) => String(n).padStart(2, '0');
 const formatTime = (s) => `${pad(Math.floor(s / 60))}:${pad(Math.floor(s % 60))}`;
-
-// --- Small pieces ---
-
-function Line({ children, serif = false }) {
-  return (
-    <span className="mask">
-      <span className={serif ? 'serif' : undefined}>{children}</span>
-    </span>
-  );
-}
-
-function Arrow() {
-  return (
-    <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M7 17 17 7M8 7h9v9" />
-    </svg>
-  );
-}
-
-function Eyebrow({ index, children }) {
-  return (
-    <p className="eyebrow">
-      <span>Scene {pad(index)}</span>
-      <span>{children}</span>
-    </p>
-  );
-}
-
-// A giant outlined word drifting behind a scene; the outer layer follows the pointer
-function BgWord({ children, depth = 24 }) {
-  return (
-    <div className="bg-layer layer" data-depth={depth} aria-hidden="true">
-      <span className="bg-word">{children}</span>
-    </div>
-  );
-}
-
-// Cards light up where the pointer is
-const spotlight = (e) => {
-  const r = e.currentTarget.getBoundingClientRect();
-  e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`);
-  e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`);
-};
 
 // Position of el's box inside ancestor, ignoring transforms (so mid-animation offsets don't skew it)
 function offsetWithin(el, ancestor) {
@@ -73,6 +32,212 @@ function offsetWithin(el, ancestor) {
   return { x, y, w: el.offsetWidth, h: el.offsetHeight };
 }
 
+// A real terminal: the scripted lines type themselves out, then it takes commands
+const COMMANDS = {
+  help: () => ['commands: whoami · ls · cat stack.txt · open <billlion|vigil|sarathi|iim> · updesh · ipmat · date · sudo hire devansh · clear'],
+  whoami: () => ['devansh agarwal: builds software, writes stories'],
+  ls: () => ['billlion/   vigil/   sarathi/   webume/'],
+  'cat stack.txt': () => ['Python · Java · C/C++ · JavaScript · Firebase · MongoDB'],
+  updesh: () => ['कर्मण्येवाधिकारस्ते मा फलेषु कदाचन', 'do the work. drop the worry about results. (Gita 2.47)'],
+  gita: () => COMMANDS.updesh(),
+  ipmat: () => ['IIM Indore ▸ loading… ▓▓▓▓▓▓▓░░░ 2027'],
+  date: () => [new Date().toDateString()],
+  vigil: () => ['Mayu is watching 👀  try: open vigil'],
+  'sudo hire devansh': () => ['[sudo] permission granted ✓', `mail: ${profile.email}`],
+  'sudo rm -rf /': () => ['nice try. Mayu blocked that 🦚'],
+  exit: () => ['there is no exit. only the next scene.'],
+};
+const TARGETS = { billlion: 'billlion', vigil: 'vigil', sarathi: 'sarathi', gita: 'sarathi', iim: 'next', ipmat: 'next', contact: 'credits' };
+
+function Terminal() {
+  const [log, setLog] = useState([]);
+  const [value, setValue] = useState('');
+  const history = useRef([]);
+  const cursor = useRef(0);
+  const inputRef = useRef(null);
+  const bodyRef = useRef(null);
+
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+  }, [log]);
+
+  const run = (raw) => {
+    const cmd = raw.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!cmd) return;
+    history.current.push(cmd);
+    cursor.current = history.current.length;
+    if (cmd === 'clear') {
+      setLog([]);
+      return;
+    }
+    let out;
+    if (cmd.startsWith('open ')) {
+      const id = TARGETS[cmd.slice(5)];
+      out = id ? [`opening ${cmd.slice(5)}…`] : [`open: no such scene. try billlion, vigil, sarathi or iim`];
+      if (id) setTimeout(() => window.dispatchEvent(new CustomEvent('webume:goto', { detail: id })), 400);
+    } else {
+      out = COMMANDS[cmd] ? COMMANDS[cmd]() : [`command not found: ${cmd}. try 'help'`];
+    }
+    setLog((l) => l.concat({ kind: 'cmd', text: cmd }, out.map((text) => ({ kind: 'out', text }))).slice(-40));
+  };
+
+  const onKey = (e) => {
+    if (e.key === 'Enter') {
+      run(value);
+      setValue('');
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const h = history.current;
+      cursor.current = Math.max(0, Math.min(h.length, cursor.current + (e.key === 'ArrowUp' ? -1 : 1)));
+      setValue(h[cursor.current] || '');
+    }
+  };
+
+  return (
+    <div className="terminal" onClick={() => inputRef.current?.focus({ preventScroll: true })}>
+      <div className="term-bar">
+        <i />
+        <i />
+        <i />
+        <span>~/devansh</span>
+      </div>
+      <div className="term-body" ref={bodyRef} data-lenis-prevent>
+        {terminal.map((l, i) => (
+          <p key={i} className={`term-line ${l.kind}`} data-text={l.text}>
+            {l.text}
+          </p>
+        ))}
+        {log.map((l, i) => (
+          <p key={`l${i}`} className={`term-log ${l.kind}`}>
+            {l.text}
+          </p>
+        ))}
+        <label className="term-input">
+          <span className="sr-only">Type a command</span>
+          <input
+            ref={inputRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={onKey}
+            placeholder="type 'help'"
+            spellCheck="false"
+            autoComplete="off"
+            autoCapitalize="off"
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+// Prints a boarding pass to IIM out of a slot
+function BoardingPass() {
+  const [printed, setPrinted] = useState(false);
+  const passRef = useRef(null);
+  const print = () => {
+    if (printed) {
+      gsap.fromTo(passRef.current, { rotate: -2 }, { rotate: 0, duration: 0.6, ease: 'elastic.out(1, 0.4)' });
+      return;
+    }
+    setPrinted(true);
+  };
+  useEffect(() => {
+    if (!printed) return;
+    gsap
+      .timeline()
+      .fromTo(passRef.current, { yPercent: -100 }, { yPercent: 0, duration: 1.8, ease: 'steps(16)' })
+      .to(passRef.current, { rotate: -1.5, duration: 0.3, ease: 'power2.out' })
+      .to(passRef.current, { rotate: 0, duration: 0.8, ease: 'elastic.out(1, 0.4)' });
+  }, [printed]);
+  return (
+    <div className="bp-wrap">
+      <button type="button" className="btn" onClick={print} data-magnetic>
+        {printed ? 'Boarding pass printed ✓' : 'Print my boarding pass'}
+      </button>
+      <div className="bp-slot">
+        {printed && (
+          <div className="bp" ref={passRef}>
+            <div className="bp-main">
+              <div className="bp-row">
+                <span>Passenger</span>
+                <b>
+                  {profile.first} {profile.last}
+                </b>
+              </div>
+              <div className="bp-route">
+                <div>
+                  <small>From</small>
+                  <strong>XII</strong>
+                  <span>Science · PCM</span>
+                </div>
+                <i aria-hidden="true">✈</i>
+                <div>
+                  <small>To</small>
+                  <strong>IIM</strong>
+                  <span>Indore</span>
+                </div>
+              </div>
+              <div className="bp-grid">
+                <div>
+                  <small>Flight</small>
+                  <b>IPMAT-27</b>
+                </div>
+                <div>
+                  <small>Gate</small>
+                  <b>QA · VA · LR</b>
+                </div>
+                <div>
+                  <small>Class</small>
+                  <b>5-yr IPM</b>
+                </div>
+              </div>
+            </div>
+            <div className="bp-stub" aria-hidden="true">
+              <span>Boarding</span>
+              <b>2027</b>
+              <div className="bp-code">
+                {Array.from({ length: 28 }, (_, i) => (
+                  <i key={i} style={{ width: `${1 + ((i * 7) % 4)}px` }} />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// The button nobody can click
+const DODGE_LABELS = ['Hire someone else', 'Nope, too slow', 'Still trying?', 'Okay, just mail me 😌'];
+function DodgeButton() {
+  const zoneRef = useRef(null);
+  const btnRef = useRef(null);
+  const [tries, setTries] = useState(0);
+  const dodge = () => {
+    const zone = zoneRef.current.getBoundingClientRect();
+    const b = btnRef.current;
+    const maxX = Math.max(0, zone.width - b.offsetWidth);
+    const maxY = Math.max(0, zone.height - b.offsetHeight);
+    gsap.to(b, { x: Math.random() * maxX, y: Math.random() * maxY, rotate: (Math.random() - 0.5) * 16, duration: 0.35, ease: 'back.out(2)' });
+    setTries((t) => Math.min(t + 1, DODGE_LABELS.length - 1));
+  };
+  const done = tries === DODGE_LABELS.length - 1;
+  return (
+    <div className="dodge-zone" ref={zoneRef}>
+      {done ? (
+        <a ref={btnRef} className="btn dodge" href={`mailto:${profile.email}`}>
+          {DODGE_LABELS[tries]}
+        </a>
+      ) : (
+        <button ref={btnRef} type="button" className="btn dodge" onPointerEnter={(e) => e.pointerType === 'mouse' && dodge()} onClick={dodge}>
+          {DODGE_LABELS[tries]}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // --- Chrome: gate, cursor, atmosphere, toast and the player-style HUD ---
 
 function Gate({ progress, onEnter }) {
@@ -80,7 +245,7 @@ function Gate({ progress, onEnter }) {
   return (
     <div className="gate" role="dialog" aria-modal="true" aria-labelledby="gate-name">
       <div className="gate-inner">
-        <p className="gate-kicker">A webume in seven scenes</p>
+        <p className="gate-kicker">A webume in eight scenes</p>
         <p className="gate-name" id="gate-name">
           {profile.first} <span className="serif">{profile.last}</span>
         </p>
@@ -456,7 +621,7 @@ function Craft() {
         <BgWord>CRAFT</BgWord>
         <div className="split">
           <div className="split-copy">
-            <Eyebrow index={4}>The craft</Eyebrow>
+            <Eyebrow index={5}>The craft</Eyebrow>
             <h2 className="display">
               <Line>Code is just</Line>
               <Line serif>another script.</Line>
@@ -464,25 +629,11 @@ function Craft() {
             <p className="lede">
               Billlion taught me that good software is a story told in logic. Every screen is a scene, and every function has to earn its place.
             </p>
+            <p className="term-hint">The terminal is real. Type <code>help</code>.</p>
           </div>
           <div className="craft-visual">
             <div className="shape-anchor craft-anchor" />
-            <div className="terminal">
-              <div className="term-bar">
-                <i />
-                <i />
-                <i />
-                <span>~/devansh</span>
-              </div>
-              <div className="term-body">
-                {terminal.map((l, i) => (
-                  <p key={i} className={`term-line ${l.kind}`} data-text={l.text}>
-                    {l.text}
-                  </p>
-                ))}
-                <span className="term-cursor" aria-hidden="true" />
-              </div>
-            </div>
+            <Terminal />
           </div>
         </div>
       </div>
@@ -506,70 +657,13 @@ function Craft() {
   );
 }
 
-function Stories() {
-  return (
-    <section className="scene s-stories" id="stories">
-      <div className="st-pin">
-        <div className="shape-anchor st-anchor" />
-        <div className="st-intro">
-          <Eyebrow index={5}>The stories</Eyebrow>
-          <h2 className="display">
-            <Line>Some ideas</Line>
-            <Line serif>deserve a screen.</Line>
-          </h2>
-        </div>
-        <figure className="st-frame">
-          <img src={stories.image} alt={stories.imageAlt} />
-          <div className="st-bars" aria-hidden="true">
-            <i />
-            <i />
-          </div>
-          <div className="st-tag">
-            <span>Now developing</span>
-            <strong>{stories.title}</strong>
-          </div>
-          <figcaption className="st-captions">
-            {stories.captions.map((c) => (
-              <span className="st-cap" key={c}>
-                {c}
-              </span>
-            ))}
-          </figcaption>
-        </figure>
-      </div>
-
-      <div className="room" data-dim>
-        <div className="room-head">
-          <h3 className="h3">
-            Short films, <span className="serif">in the making.</span>
-          </h3>
-          <p className="lede">It started with poetry and creative writing. Script writing is the next chapter, and it already has a pipeline.</p>
-        </div>
-        <ol className="room-steps">
-          {stories.pipeline.map((s, i) => (
-            <li className="step" key={s.title} onPointerMove={spotlight}>
-              <div className="step-top">
-                <span>{pad(i + 1)}</span>
-                <span className={`status status-${s.status}`}>{s.status === 'done' ? 'Done' : s.status === 'now' ? 'In progress' : 'Up next'}</span>
-              </div>
-              <h4>{s.title}</h4>
-              <p>{s.body}</p>
-            </li>
-          ))}
-        </ol>
-        <p className="st-disclaimer">{stories.disclaimer}</p>
-      </div>
-    </section>
-  );
-}
-
 function Next() {
   return (
     <section className="scene s-next" id="next">
       <BgWord>IIM 2027</BgWord>
       <div className="split">
         <div className="split-copy">
-          <Eyebrow index={6}>What's next</Eyebrow>
+          <Eyebrow index={7}>What's next</Eyebrow>
           <h2 className="display">
             <Line>Next stop:</Line>
             <Line serif>IIM.</Line>
@@ -591,7 +685,10 @@ function Next() {
             ))}
           </div>
         </div>
-        <div className="shape-anchor split-visual" />
+        <div className="next-visual">
+          <div className="shape-anchor split-visual" />
+          <BoardingPass />
+        </div>
       </div>
     </section>
   );
@@ -603,7 +700,7 @@ function Credits({ onReplay }) {
       <BgWord depth={14}>FIN</BgWord>
       <div className="shape-anchor credits-anchor" />
       <div className="contact">
-        <Eyebrow index={7}>Credits</Eyebrow>
+        <Eyebrow index={8}>Credits</Eyebrow>
         <h2 className="display">
           <Line>Let's write</Line>
           <Line serif>the next scene.</Line>
@@ -619,6 +716,7 @@ function Credits({ onReplay }) {
             All my links <Arrow />
           </a>
         </div>
+        <DodgeButton />
       </div>
 
       <div className="credits-roll">
@@ -642,7 +740,7 @@ function Credits({ onReplay }) {
   );
 }
 
-// All seven scenes. Memoised so scene changes (which update the HUD) never re-render the film.
+// All eight scenes. Memoised so scene changes (which update the HUD) never re-render the film.
 const Film = memo(function Film({ onReplay }) {
   return (
     <main>
@@ -656,10 +754,13 @@ const Film = memo(function Film({ onReplay }) {
         <Billlion />
       </div>
       <div className="scene-wrap">
+        <VigilScene index={4} />
+      </div>
+      <div className="scene-wrap">
         <Craft />
       </div>
       <div className="scene-wrap">
-        <Stories />
+        <SarathiScene index={6} />
       </div>
       <div className="scene-wrap">
         <Next />
@@ -797,6 +898,24 @@ function buildTimelines(desktop) {
     revealOnEnter('.bl-role', '.bl-role');
   }
 
+  // Vigil: Mayu lands and fans out, the promo tilts up into view, then the lab and features rise
+  {
+    headline('.s-vigil');
+    const tl = gsap.timeline({ scrollTrigger: { trigger: '.vg-hero', start: 'top 70%' } });
+    tl.from('.vg-mayu', { y: 120, scale: 0.3, autoAlpha: 0, duration: 0.9, ease: 'back.out(1.8)' })
+      .fromTo('.vg-mayu .pk-feather', { rotation: 0, svgOrigin: '60 76' }, { rotation: (i, el) => Number(el.dataset.a), svgOrigin: '60 76', duration: 0.8, stagger: 0.03, ease: 'back.out(2)' }, 0.3)
+      .from('.vg-word', { yPercent: 60, autoAlpha: 0, duration: 1, ease: 'expo.out' }, 0.2)
+      .from('.s-vigil .lede, .vg-pills li', { autoAlpha: 0, y: 24, stagger: 0.06, duration: 0.7, ease: 'expo.out' }, 0.6);
+    gsap.fromTo(
+      '.vg-promo',
+      { rotateX: desktop ? 28 : 12, scale: 0.86, autoAlpha: 0.3 },
+      { rotateX: 0, scale: 1, autoAlpha: 1, ease: 'none', scrollTrigger: { trigger: '.vg-promo', start: 'top bottom', end: 'top 30%', scrub: true } }
+    );
+    revealOnEnter('.lab-card', '.vg-lab', { y: 70 });
+    revealOnEnter('.vg-feature', '.vg-features', { y: 50, stagger: 0.07 });
+    revealOnEnter('.vg-gallery-head > *, .vg-shot', '.vg-gallery', { x: 60, y: 0, stagger: 0.06 });
+  }
+
   // Craft: the terminal types itself out
   {
     const lines = gsap.utils.toArray('.term-line');
@@ -844,9 +963,9 @@ function buildTimelines(desktop) {
       .from('.tree .chip', { autoAlpha: 0, scale: 0.6, stagger: 0.02, duration: 0.3, ease: 'back.out(2)' }, 1.3);
   }
 
-  // Stories: the concept art opens up into a full-screen frame with subtitles
+  // Sarathi: the key art opens up into a full-screen frame with subtitles
   {
-    headline('.s-stories');
+    headline('.s-sarathi');
     const tl = gsap.timeline({ scrollTrigger: { trigger: '.st-pin', start: 'top top', end: '+=240%', pin: true, scrub: 1 } });
     tl.fromTo(
       '.st-frame',
@@ -864,8 +983,9 @@ function buildTimelines(desktop) {
     });
     tl.to({}, { duration: 0.4 });
 
-    revealOnEnter('.room-head > *', '.room');
-    revealOnEnter('.step', '.room-steps', { y: 60, rotateX: -20, transformOrigin: '50% 0%' });
+    revealOnEnter('.sr-title > *', '.sr-title');
+    revealOnEnter('.ak, .ep', '.sr-play', { y: 60 });
+    revealOnEnter('.s-sarathi .step', '.s-sarathi .room-steps', { y: 60, rotateX: -20, transformOrigin: '50% 0%' });
   }
 
   // What's next: the shortlist rolls in like credits
@@ -966,7 +1086,7 @@ export default function App() {
 
   // Preload the heavy images and fonts behind the gate's loading bar
   useEffect(() => {
-    const urls = [stories.image, ...billlion.shots.map((s) => s.src)];
+    const urls = [sarathi.image, vigil.poster, ...billlion.shots.map((s) => s.src)];
     const total = urls.length + 1;
     let done = 0;
     let alive = true;
@@ -1032,9 +1152,17 @@ export default function App() {
 
     const onVisibility = () => score.setHidden(document.hidden);
     document.addEventListener('visibilitychange', onVisibility);
+    const onGoto = (e) => {
+      const el = document.getElementById(e.detail);
+      if (!el) return;
+      if (lenisRef.current) lenisRef.current.scrollTo(el, { duration: 1.8 });
+      else el.scrollIntoView({ behavior: 'smooth' });
+    };
+    window.addEventListener('webume:goto', onGoto);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('webume:goto', onGoto);
       if (lenis) {
         gsap.ticker.remove(raf);
         lenis.destroy();
