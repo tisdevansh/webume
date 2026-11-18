@@ -3,7 +3,7 @@ import gsap from 'gsap';
 import { Draggable } from 'gsap/Draggable';
 import { InertiaPlugin } from 'gsap/InertiaPlugin';
 import Peacock from '../components/Peacock';
-import { profile, vigil } from '../content';
+import { vigil } from '../content';
 import { Arrow, BgWord, buzz, Eyebrow, Line, pad, pick, prefersReducedMotion, spotlight } from '../ui';
 
 gsap.registerPlugin(Draggable, InertiaPlugin);
@@ -307,7 +307,7 @@ export default function VigilScene({ index }) {
           <p>
             Built for my own IPMAT prep, made for anyone who keeps saying <span className="serif">"bas ek reel"</span>.
           </p>
-          <a className="btn btn-primary" href={`mailto:${profile.email}?subject=${encodeURIComponent('I want Vigil')}`} data-magnetic>
+          <a className="btn btn-primary" href="https://getvigil.web.app/" target="_blank" rel="noopener noreferrer" data-magnetic>
             Get Vigil <Arrow />
           </a>
         </div>
